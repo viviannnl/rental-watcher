@@ -55,7 +55,7 @@ PLACEHOLDER_RE = re.compile(r"\[[^\]\n]{2,40}\]")
 
 
 def unfilled_placeholders(message=None):
-    return PLACEHOLDER_RE.findall(message if message is not None else config.REPLY_MESSAGE)
+    return PLACEHOLDER_RE.findall(message if message is not None else config.reply_body())
 
 
 def playwright_available():
@@ -128,7 +128,7 @@ def auto_reply(listing, timeout_ms=25000):
             ctx.close()
 
     try:
-        send_email(addr, config.REPLY_SUBJECT, config.REPLY_MESSAGE)
+        send_email(addr, config.REPLY_SUBJECT, config.reply_body())
     except Exception as exc:
         log.exception("smtp send failed")
         return False, f"found {addr} but sending failed: {exc}"
@@ -159,7 +159,7 @@ def assisted_reply(listing, timeout_ms=25000):
             filled = False
             for sel in ("textarea", "[contenteditable='true']"):
                 try:
-                    page.fill(sel, config.REPLY_MESSAGE, timeout=8000)
+                    page.fill(sel, config.reply_body(), timeout=8000)
                     filled = True
                     break
                 except PWTimeout:
@@ -168,7 +168,7 @@ def assisted_reply(listing, timeout_ms=25000):
             if not filled:
                 note = "opened the reply form, but found no message box to pre-fill"
             elif unfilled_placeholders():
-                # Still worth opening: she can edit it in the window before sending.
+                # Still worth opening: you can edit it in the window before sending.
                 note = (
                     "pre-filled, but EDIT IT FIRST - still contains "
                     + ", ".join(unfilled_placeholders())

@@ -76,6 +76,20 @@ cloudflared tunnel --url http://localhost:5000     # or: ngrok http 5000
 Inbound requests are rejected unless they carry a valid Twilio signature, since
 that endpoint is public.
 
+## The reply message
+
+`REPLY_MESSAGE` in `.env` is the intro sent to a listing. Two things about it:
+
+- **`{availability}` is substituted from `AVAILABILITY`**, so you can change your
+  viewing hours without rewriting the sentence around them.
+- **Bracketed placeholders block sending.** The template ships with
+  `[MOVE-IN DATE]`, `[YOUR PHONE]` and similar. Unattended replies refuse while any
+  remain, assisted replies still open the browser but flag what needs editing, and
+  the dashboard and startup log both warn. Sending `[YOUR PHONE]` to a landlord
+  verbatim is worse than not replying at all.
+
+Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
+
 ## How it behaves
 
 - **First run alerts nothing.** Every listing currently up is already old news, so

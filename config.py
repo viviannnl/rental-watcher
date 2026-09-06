@@ -59,10 +59,28 @@ SMTP_PORT = _i("SMTP_PORT", 587)
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 REPLY_SUBJECT = os.getenv("REPLY_SUBJECT", "Interested in your rental listing")
-REPLY_MESSAGE = os.getenv(
+
+# When you can view a place. Pulled out of the message body because it's the part
+# most likely to change week to week, and it reads better as one editable phrase
+# than as prose you have to surgically rewrite.
+AVAILABILITY = os.getenv(
+    "AVAILABILITY", "on weekday evenings after 6pm, and most of the weekend"
+)
+
+REPLY_TEMPLATE = os.getenv(
     "REPLY_MESSAGE",
     "Hi! I saw your listing on Craigslist and I'm very interested. "
-    "Is it still available? I can view any time this week.",
+    "Is it still available? I'm free {availability}.",
 )
+
+
+def reply_body():
+    """The message to send, with {availability} filled in.
+
+    Uses str.replace rather than str.format so a stray brace in someone's message
+    can't raise, and so unknown tokens are left visible instead of vanishing.
+    """
+    return REPLY_TEMPLATE.replace("{availability}", AVAILABILITY)
+
 
 DRY_RUN = os.getenv("DRY_RUN", "0") == "1"

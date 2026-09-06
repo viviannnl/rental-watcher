@@ -214,6 +214,19 @@ def main():
     )
     if not notifier.configured():
         log.warning("Twilio not configured - alerts will only be logged")
+    if "{availability}" not in config.REPLY_TEMPLATE:
+        log.warning(
+            "REPLY_MESSAGE has no {availability} placeholder, so AVAILABILITY (%r) "
+            "will not appear in your replies",
+            config.AVAILABILITY,
+        )
+    missing = replier.unfilled_placeholders()
+    if missing:
+        log.warning(
+            "REPLY_MESSAGE still contains %s - unattended replies are blocked until "
+            "you fill these in",
+            ", ".join(missing),
+        )
     threading.Thread(target=poller, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
 
