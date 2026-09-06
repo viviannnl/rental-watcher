@@ -49,6 +49,14 @@ UA = (
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 RELAY_DOMAINS = ("craigslist.org", "reply.craigslist.org")
 
+# The template ships with [MOVE-IN DATE], [YOUR PHONE] and so on. Sending those
+# verbatim to a landlord is worse than not replying, so every path checks first.
+PLACEHOLDER_RE = re.compile(r"\[[^\]\n]{2,40}\]")
+
+
+def unfilled_placeholders(message=None):
+    return PLACEHOLDER_RE.findall(message if message is not None else config.REPLY_MESSAGE)
+
 
 def playwright_available():
     try:
@@ -84,6 +92,9 @@ def auto_reply(listing, timeout_ms=25000):
     """Try headlessly to read the relay address and email it. Returns (ok, note)."""
     if not playwright_available():
         return False, "playwright not installed"
+    missing = unfilled_placeholders()
+    if missing:
+        return False, f"REPLY_MESSAGE still has {', '.join(missing)} to fill in"
 
     from playwright.sync_api import TimeoutError as PWTimeout
     from playwright.sync_api import sync_playwright
@@ -154,11 +165,16 @@ def assisted_reply(listing, timeout_ms=25000):
                 except PWTimeout:
                     continue
 
-            note = (
-                "message pre-filled - solve the captcha and press send"
-                if filled
-                else "opened the reply form, but found no message box to pre-fill"
-            )
+            if not filled:
+                note = "opened the reply form, but found no message box to pre-fill"
+            elif unfilled_placeholders():
+                # Still worth opening: she can edit it in the window before sending.
+                note = (
+                    "pre-filled, but EDIT IT FIRST - still contains "
+                    + ", ".join(unfilled_placeholders())
+                )
+            else:
+                note = "message pre-filled - solve the captcha and press send"
             log.info("assisted reply for #%s: %s", listing["num"], note)
             # Give the human time to finish; the window closing ends the wait.
             try:

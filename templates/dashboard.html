@@ -37,6 +37,13 @@
     <p class="warn"><strong>Twilio not configured.</strong>
     Alerts are only written to the server log. Fill in the Twilio values in <code>.env</code>.</p>
   {% endif %}
+  {% if placeholders %}
+    <p class="warn"><strong>Your reply message isn't finished.</strong>
+    It still contains {{ placeholders|join(", ") }} &mdash; unattended sending is
+    blocked until you replace those in <code>.env</code>, so nothing half-written
+    reaches a landlord.</p>
+  {% endif %}
+
   {% if playwright %}
     <p class="warn"><strong>Replies are assisted, not automatic.</strong>
     Craigslist hides the reply address behind an hCaptcha challenge, so

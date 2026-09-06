@@ -172,6 +172,7 @@ def dashboard():
         walk=craigslist.walk_minutes,
         playwright=replier.playwright_available(),
         twilio=notifier.configured(),
+        placeholders=replier.unfilled_placeholders(),
     )
 
 
