@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rental watcher</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 2rem; max-width: 60rem; }
+    h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
+    .sub { opacity: .7; font-size: .85rem; margin-bottom: 1.5rem; }
+    .warn { background: #fff4e5; border-left: 3px solid #e59700; padding: .6rem .8rem;
+            margin: 0 0 1rem; font-size: .85rem; color: #000; }
+    table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+    th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid rgba(128,128,128,.25); }
+    th { font-weight: 600; opacity: .65; font-size: .78rem; text-transform: uppercase; }
+    td.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .title { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag { font-size: .72rem; padding: .1rem .4rem; border-radius: 3px; background: rgba(128,128,128,.2); }
+    .ok { background: rgba(40,160,70,.22); }
+    button { font: inherit; padding: .2rem .55rem; cursor: pointer; }
+    form { display: inline; }
+    .bar { margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Rental watcher</h1>
+  <div class="sub">
+    {{ config.MIN_BEDROOMS }}&ndash;{{ config.MAX_BEDROOMS }} bed &middot;
+    within {{ config.RADIUS_M|int }} m of
+    <a href="https://www.google.com/maps/search/?api=1&query={{ config.OFFICE_LAT }},{{ config.OFFICE_LON }}">
+      YVR14</a> &middot;
+    polling every {{ config.POLL_MINUTES }} min
+  </div>
+
+  {% if not twilio %}
+    <p class="warn"><strong>Twilio not configured.</strong>
+    Alerts are only written to the server log. Fill in the Twilio values in <code>.env</code>.</p>
+  {% endif %}
+  {% if playwright %}
+    <p class="warn"><strong>Replies are assisted, not automatic.</strong>
+    Craigslist hides the reply address behind an hCaptcha challenge, so
+    <em>Send</em> tries unattended first and then opens a browser window with your
+    message pre-filled for you to finish. Captchas tend to ease off on a profile
+    that has passed before, so unattended sends may start working over time.</p>
+  {% else %}
+    <p class="warn"><strong>Assisted reply unavailable.</strong>
+    Needs Playwright: <code>pip install playwright &amp;&amp; playwright install chromium</code>.
+    Until then, replying is fully manual &mdash; the alert text still links to each post.</p>
+  {% endif %}
+
+  <div class="bar">
+    <form method="post" action="/poll"><button>Check now</button></form>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Price</th><th>Bed</th><th class="n">Walk</th>
+        <th>Listing</th><th>Found</th><th>Reply</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for l in listings %}
+      <tr>
+        <td class="n">{{ l.num }}</td>
+        <td class="n">{{ "${:,}".format(l.price) if l.price else "—" }}</td>
+        <td>{{ "studio" if l.bedrooms == 0 else (l.bedrooms|string + "br" if l.bedrooms is not none else "—") }}</td>
+        <td class="n">{{ walk(l.distance_m) }} min<br><span class="tag">{{ l.distance_m|int }} m</span></td>
+        <td class="title"><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a></td>
+        <td>{{ l.seen_at }}{% if not l.notified %} <span class="tag">not texted</span>{% endif %}</td>
+        <td>
+          {% if l.replied_at %}
+            <span class="tag ok" title="{{ l.reply_note }}">replied</span>
+          {% else %}
+            <form method="post" action="/reply/{{ l.num }}"><button>Send</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7">Nothing yet. Hit &ldquo;Check now&rdquo;.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

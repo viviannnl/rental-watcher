@@ -1,0 +1,6 @@
+.venv/
+.env
+listings.db
+.browser-profile/
+__pycache__/
+*.pyc
