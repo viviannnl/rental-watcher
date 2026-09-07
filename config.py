@@ -59,11 +59,29 @@ TWILIO_API_KEY_SECRET = os.getenv("TWILIO_API_KEY_SECRET", "")
 TWILIO_FROM = os.getenv("TWILIO_FROM", "")
 MY_PHONE = os.getenv("MY_PHONE", "")
 
-# --- Outbound reply email ---
-SMTP_HOST = os.getenv("SMTP_HOST", "")
+# --- How you get alerted ---
+# "email" needs only a Gmail App Password and is the default. "sms" needs a paid
+# Twilio account (trial accounts can only send canned templates, so alerts fail)
+# plus a public webhook URL for replies. "both" does each.
+NOTIFY_CHANNEL = os.getenv("NOTIFY_CHANNEL", "email").strip().lower()
+NOTIFY_EMAIL = NOTIFY_CHANNEL in ("email", "both")
+NOTIFY_SMS = NOTIFY_CHANNEL in ("sms", "both")
+
+# --- Email (alerts to you, replies to landlords, and reading your responses) ---
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = _i("SMTP_PORT", 587)
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
+# Where alerts go. Defaults to the sending account, i.e. you email yourself.
+ALERT_EMAIL = os.getenv("ALERT_EMAIL", "") or SMTP_USER
+
+IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
+IMAP_PORT = _i("IMAP_PORT", 993)
+IMAP_FOLDER = os.getenv("IMAP_FOLDER", "INBOX")
+# How often to check for your replies. Cheap, so it can be much tighter than the
+# Craigslist poll.
+INBOX_POLL_SECONDS = _i("INBOX_POLL_SECONDS", 60)
+WATCH_INBOX = os.getenv("WATCH_INBOX", "1") == "1"
 REPLY_SUBJECT = os.getenv("REPLY_SUBJECT", "Interested in your rental listing")
 
 # When you can view a place. Pulled out of the message body because it's the part

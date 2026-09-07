@@ -1,8 +1,11 @@
 # Rental watcher
 
 Polls Craigslist Vancouver for new studio/1-bedroom rentals within walking
-distance of Amazon YVR14 (402 Dunsmuir St) and texts you each one with a link.
-Text the listing number back and it opens a reply with your pre-set message.
+distance of Amazon YVR14 (402 Dunsmuir St) and emails you each one with a link.
+Reply to that email and it sends the poster your pre-set intro message.
+
+Email is the default because it needs nothing but a Gmail App Password. SMS is
+supported too, but needs a paid Twilio account and a public URL.
 
 ## Is Craigslist scrapable?
 
@@ -31,10 +34,10 @@ challenge**. Verified against the live site:
 - in a real browser it does resolve, then immediately loads hCaptcha before
   showing the address
 
-So "reply to my text and the app posts my message" isn't achievable without
+So "reply to my alert and the app posts my message" isn't achievable without
 defeating a captcha, which this project won't do. What it does instead is
-**assisted reply**: texting back opens a browser window on the machine running
-the app, already on the reply form with your message typed in, so you solve the
+**assisted reply**: replying opens a browser window on the machine running the
+app, already on the reply form with your message typed in, so you solve the
 captcha and hit send. It also retries unattended each time against a persistent
 browser profile — hCaptcha often stops challenging a profile that has passed
 before, so unattended sends may start working after you've done a few by hand.
@@ -64,7 +67,7 @@ to the log instead.
 .venv/bin/python app.py     # dashboard on http://localhost:5000
 ```
 
-## Receiving texts
+## Receiving texts (only if NOTIFY_CHANNEL includes sms)
 
 Twilio needs a public URL for the inbound webhook, so expose the app and point
 your Twilio number's "A message comes in" webhook at `https://<your-url>/sms`:
@@ -75,6 +78,36 @@ cloudflared tunnel --url http://localhost:5000     # or: ngrok http 5000
 
 Inbound requests are rejected unless they carry a valid Twilio signature, since
 that endpoint is public.
+
+## Alerts: email by default
+
+`NOTIFY_CHANNEL=email` is the default because it needs one credential and nothing
+else: a Gmail App Password. No phone number, no paid account, and crucially **no
+public URL** — replies are read by connecting out over IMAP rather than having a
+provider push a webhook at you, so there is no tunnel to keep running.
+
+The loop:
+
+1. A new listing arrives, and you get an email subjected `[#12] $2,395 1br - ...`
+2. You reply to that email. Anything you type counts as "go ahead"; opening the
+   reply with `no` or `skip` means do nothing.
+3. Within a minute the app notices, matches `[#12]` in your `Re:` subject back to
+   the listing, sends your intro, and emails you what happened.
+
+Turn reply-watching off with `WATCH_INBOX=0` if you only want the alerts.
+
+### Why not SMS?
+
+`NOTIFY_CHANNEL=sms` still works but needs a **paid** Twilio account. Trial
+accounts can only send from a fixed list of canned templates, so arbitrary text
+like a listing title is rejected outright:
+
+```
+HTTP 400: Invalid template name. Trial accounts can only use predefined SMS templates.
+```
+
+SMS also needs a public webhook for replies, which means keeping a tunnel up. Use
+`NOTIFY_CHANNEL=both` if you want texts and email together.
 
 ## Twilio credentials
 
@@ -105,9 +138,9 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
 ## How it behaves
 
 - **First run alerts nothing.** Every listing currently up is already old news, so
-  the first poll records them silently and only later arrivals get texted.
-- **At most 5 texts per poll**, with a summary text if more matched. Without this
-  a widened filter would dump a hundred messages at once.
+  the first poll records them silently and only later arrivals get sent.
+- **At most 5 alerts per poll**, with a summary message if more matched. Without
+  this a widened filter would dump a hundred messages at once.
 - **Room shares are filtered out.** Craigslist counts a shared room as "1br", so
   titles matching `EXCLUDE_KEYWORDS` are dropped.
 - **Distance is straight-line.** The default 700 m is tuned so it corresponds to
@@ -120,9 +153,11 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
 | File | Role |
 |---|---|
 | `craigslist.py` | JSON search endpoint, response decoding, distance filter |
-| `notifier.py` | Twilio outbound texts and alert formatting |
-| `replier.py` | Assisted and unattended reply, SMTP send |
-| `app.py` | Flask routes, background poller, inbound SMS handling |
+| `mailer.py` | Alert emails to you, and the SMTP send used for intros |
+| `inbox.py` | Reads your replies over IMAP; the email answer to a webhook |
+| `notifier.py` | Twilio outbound texts, if SMS is enabled |
+| `replier.py` | Assisted and unattended reply to a listing |
+| `app.py` | Flask routes, background poller, inbox watcher |
 | `db.py` | SQLite storage and dedupe |
 
 ## Fair warning

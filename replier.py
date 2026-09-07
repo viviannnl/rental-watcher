@@ -31,10 +31,9 @@ Enable both with:  pip install playwright && playwright install chromium
 import logging
 import os
 import re
-import smtplib
-from email.message import EmailMessage
 
 import config
+import mailer
 
 log = logging.getLogger(__name__)
 
@@ -187,19 +186,5 @@ def assisted_reply(listing, timeout_ms=25000):
 
 
 def send_email(to_addr, subject, body):
-    if config.DRY_RUN:
-        log.info("[dry-run email to %s] %s\n%s", to_addr, subject, body)
-        return
-    if not (config.SMTP_HOST and config.SMTP_USER and config.SMTP_PASS):
-        raise RuntimeError("SMTP is not configured")
-
-    msg = EmailMessage()
-    msg["From"] = config.SMTP_USER
-    msg["To"] = to_addr
-    msg["Subject"] = subject
-    msg.set_content(body)
-    with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as smtp:
-        smtp.starttls()
-        smtp.login(config.SMTP_USER, config.SMTP_PASS)
-        smtp.send_message(msg)
-    log.info("emailed reply to %s", to_addr)
+    """Send the intro to a landlord's relay address."""
+    mailer.smtp_send(to_addr, subject, body)

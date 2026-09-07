@@ -33,9 +33,20 @@
     polling every {{ config.POLL_MINUTES }} min
   </div>
 
-  {% if not twilio %}
+  {% if config.NOTIFY_EMAIL and not email_ready %}
+    <p class="warn"><strong>Email not configured.</strong>
+    Alerts are only written to the server log. Set <code>SMTP_USER</code> and
+    <code>SMTP_PASS</code> (a Gmail App Password) in <code>.env</code>.</p>
+  {% endif %}
+  {% if config.NOTIFY_SMS and not twilio %}
     <p class="warn"><strong>Twilio not configured.</strong>
-    Alerts are only written to the server log. Fill in the Twilio values in <code>.env</code>.</p>
+    Texts are only written to the server log. Fill in the Twilio values in
+    <code>.env</code>, and note a trial account can't send listing alerts.</p>
+  {% endif %}
+  {% if config.NOTIFY_EMAIL and email_ready and not inbox_ready %}
+    <p class="warn"><strong>Inbox watching is off.</strong>
+    Alerts will arrive, but replying to them won't do anything. Set
+    <code>WATCH_INBOX=1</code> and <code>IMAP_HOST</code> in <code>.env</code>.</p>
   {% endif %}
   {% if placeholders %}
     <p class="warn"><strong>Your reply message isn't finished.</strong>
