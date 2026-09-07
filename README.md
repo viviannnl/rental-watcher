@@ -76,6 +76,18 @@ cloudflared tunnel --url http://localhost:5000     # or: ngrok http 5000
 Inbound requests are rejected unless they carry a valid Twilio signature, since
 that endpoint is public.
 
+## Twilio credentials
+
+You need the **Account SID** and **Auth Token** from the console home page. The
+Auth Token is not optional even if you'd rather use a scoped credential: Twilio
+signs inbound webhooks with it, so it is the only thing that can verify that a
+text claiming to be from Twilio really is.
+
+Optionally set `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET` to a **restricted API
+key** with just `Messaging > Messages > Create`. Sending then uses that key rather
+than the Auth Token, so the credential doing the sending can't reconfigure or bill
+your account, and you can revoke it without rotating anything else.
+
 ## The reply message
 
 `REPLY_MESSAGE` in `.env` is the intro sent to a listing. Two things about it:

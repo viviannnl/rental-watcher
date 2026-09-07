@@ -9,17 +9,34 @@ _client = None
 
 
 def client():
+    """Twilio client, preferring a restricted API key over the account Auth Token.
+
+    An API key can be scoped to just "send a message" and revoked on its own,
+    whereas the Auth Token is full account access. Note this only narrows the
+    sending path: validating inbound webhook signatures still needs the Auth
+    Token, because that is what Twilio signs its requests with.
+    """
     global _client
     if _client is None:
         from twilio.rest import Client
 
-        _client = Client(config.TWILIO_ACCOUNT_SID, config.TWILIO_AUTH_TOKEN)
+        if config.TWILIO_API_KEY_SID and config.TWILIO_API_KEY_SECRET:
+            _client = Client(
+                config.TWILIO_API_KEY_SID,
+                config.TWILIO_API_KEY_SECRET,
+                config.TWILIO_ACCOUNT_SID,
+            )
+        else:
+            _client = Client(config.TWILIO_ACCOUNT_SID, config.TWILIO_AUTH_TOKEN)
     return _client
 
 
 def configured():
-    return all(
-        [config.TWILIO_ACCOUNT_SID, config.TWILIO_AUTH_TOKEN, config.TWILIO_FROM, config.MY_PHONE]
+    has_credential = bool(config.TWILIO_AUTH_TOKEN) or bool(
+        config.TWILIO_API_KEY_SID and config.TWILIO_API_KEY_SECRET
+    )
+    return bool(
+        config.TWILIO_ACCOUNT_SID and config.TWILIO_FROM and config.MY_PHONE and has_credential
     )
 
 

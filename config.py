@@ -49,7 +49,13 @@ CL_CATEGORY = os.getenv("CL_CATEGORY", "apa")
 
 # --- Twilio ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+# Needed regardless of whether you use an API key: Twilio signs inbound webhooks
+# with the Auth Token, so it is the only thing that can verify them.
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+# Optional. If set, outbound sends use this restricted key instead of the Auth
+# Token, so the credential doing the sending can't do anything else.
+TWILIO_API_KEY_SID = os.getenv("TWILIO_API_KEY_SID", "")
+TWILIO_API_KEY_SECRET = os.getenv("TWILIO_API_KEY_SECRET", "")
 TWILIO_FROM = os.getenv("TWILIO_FROM", "")
 MY_PHONE = os.getenv("MY_PHONE", "")
 
