@@ -75,8 +75,8 @@
       display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap;
     }
     .pill strong { color: var(--ink); font-weight: 600; }
-    /* The one pill that's worth noticing: it's the only announcement there is now
-       that nothing gets emailed. */
+    /* The one pill worth noticing. The digest email only says there is something to
+       see; this is where you find out what, and what you haven't looked at yet. */
     .pill.fresh {
       background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
     }
@@ -336,8 +336,8 @@
         <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}"
            target="_blank" rel="noopener">the office</a>
       </span>
-      {# Was "via email". Nothing is emailed now, so the useful thing to say here is
-         whether there is anything you haven't looked at. #}
+      {# Was "via email". Email is now one digest per check rather than a per-listing
+         alert, so the useful thing to say here is what you haven't looked at. #}
       {% if new_count %}
         <span class="pill fresh"><strong>{{ new_count }} new</strong> since you last looked</span>
       {% endif %}

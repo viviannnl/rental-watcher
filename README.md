@@ -5,10 +5,11 @@ distance of Amazon YVR14 (402 Dunsmuir St) and shows them on a dashboard, marked
 new until you've looked at them. Hit **Send** on a row to reply to the poster with
 your pre-set intro message.
 
-**Nothing is emailed.** It used to send one email per matching listing plus an
-overflow summary, which meant five or six messages per poll saying nothing the
-dashboard didn't already show. New places are announced on the page instead. That
-does mean you have to open it — this tells you what's new, it doesn't interrupt you.
+**One email per check, not one per listing.** It used to send a message for every
+match plus an overflow summary, so a busy evening meant six emails that each said
+less than the dashboard already showed. Now a check that finds anything sends a
+single truncated digest — the first few places, then a count of the rest — and the
+dashboard is where you actually look.
 
 ## Is Craigslist scrapable?
 
@@ -63,8 +64,10 @@ has no rooftop pin for 402 Dunsmuir, so the default is a street-level estimate:
 Open the map link it prints. If the pin isn't on the building, right-click the
 building in Google Maps, copy the coordinates, and set `OFFICE_LAT`/`OFFICE_LON`.
 
-`DRY_RUN=1` writes intro messages to the log instead of contacting anyone. Listings
-are still found and shown either way, so this only affects **Send**.
+`DRY_RUN=1` writes intro messages to the log instead of contacting anyone, so it only
+affects **Send**. Listings are still found and shown either way, and the digest still
+reaches your own inbox — the point is not to message a stranger by accident, and
+mailing yourself isn't that.
 
 ```bash
 .venv/bin/python app.py     # dashboard on http://localhost:5000
@@ -84,7 +87,7 @@ that endpoint is public.
 
 ## How you find out about new places
 
-The dashboard, and only the dashboard. New listings carry a **new** badge and a
+**The dashboard is the place you look.** New listings carry a **new** badge and a
 count in the header until the page has shown them to you, then the badge clears
 itself. "New" means "you haven't had a chance to look at this", not "arrived
 recently" — so a place found overnight is still marked new in the morning.
@@ -92,29 +95,61 @@ recently" — so a place found overnight is still marked new in the morning.
 Only rows actually on the page count as looked at. Anything past the 100-row cut, or
 hidden by the **Matching** toggle, stays new.
 
-### Replying by email (off by default)
+**The digest email is the nudge.** A check that finds something sends exactly one
+message, whether it found one place or thirty:
 
-There is an older path where alert emails could be replied to, and the reply
-triggered the intro message. `WATCH_INBOX=0` disables it and that is now the
-default: with no alert emails to reply to, every message you sent to that mailbox
-just produced a failed captcha attempt and a report about it. The code is still
-there — `WATCH_INBOX=1` plus SMTP/IMAP credentials brings it back — but **Send** on
-the dashboard does the same job without the round trip.
+```
+Subject: 3 new rentals near the office
+
+#331  $2,150 · 1br · 6 min walk
+    Renovated 1BR w/ balcony steps from Waterfront
+    555 W HASTINGS ST, built 1998
+    https://vancouver.craigslist.org/van/apa/d/vancouver-1br/7891.html
+...
+```
+
+- **It's truncated at `DIGEST_MAX` (8).** Past a handful you're going to open the
+  dashboard regardless, so the rest are counted, not listed. A widened radius that
+  turns up forty places is still one email.
+- **A single find puts its price, size and walk in the subject line**, so you can
+  triage it without opening anything. Several can't be summarised that way, so the
+  subject counts them rather than picking one arbitrarily.
+- **It also says how many listings are still unopened**, which is the part that
+  catches an evening you ignored.
+- **Nothing is sent when nothing was found.** Silence means silence, not a broken
+  poller — the header dot on the dashboard is what tells you it's alive.
+- **It's sent even when `DRY_RUN=1`**, because dry run exists so you don't contact a
+  stranger by accident, and this only goes to your own address. Set `EMAIL_DIGEST=0`
+  to stop it entirely and rely on the dashboard.
+- **Addresses and years appear for the newest few**, since enrichment runs before the
+  digest is built and is capped per poll (`ENRICH_PER_POLL`).
+
+Set `DASHBOARD_URL` if you reach the app at something other than
+`http://localhost:5000`; it's the link at the foot of every digest.
+
+### Replying to the digest does nothing
+
+The old path let you reply to a per-listing alert to fire off your intro message —
+matched back to the listing by the `[#12]` in the subject. A digest covers several
+listings, so there's no single poster to forward your words to, and the email says
+so rather than swallowing them. **Send** on the dashboard row is the reply path.
+
+`WATCH_INBOX` is therefore `0` by default. Left on, it produced a captcha-blocked
+send plus a report about it for every message you sent that mailbox.
 
 ### Why not SMS?
 
-Listing alerts aren't sent over SMS either, and wouldn't be worth it if they were: a
-**paid** Twilio account is required, because trial accounts can only send from a
-fixed list of canned templates, so arbitrary text like a listing title is rejected
-outright:
+Not worth it: a **paid** Twilio account is required, because trial accounts can only
+send from a fixed list of canned templates, so arbitrary text like a listing title is
+rejected outright:
 
 ```
 HTTP 400: Invalid template name. Trial accounts can only use predefined SMS templates.
 ```
 
 The `/sms` webhook survives so you can text a listing number to reply to it, which
-needs a public URL and therefore a tunnel. `NOTIFY_CHANNEL` no longer affects
-whether you hear about listings — that's the dashboard, always.
+needs a public URL and therefore a tunnel. `NOTIFY_CHANNEL` doesn't govern the
+digest — `EMAIL_DIGEST` does.
 
 ## Twilio credentials
 
@@ -199,7 +234,7 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
 - **First run flags nothing as new.** Every listing currently up is already old news,
   so the first poll records them silently and only later arrivals are marked.
 - **No cap on how many a poll can find.** There was one, back when each match meant
-  an email. A hundred new rows is a long page, not a hundred messages.
+  its own email. A hundred new rows is a long page and one truncated digest.
 - **Room shares are filtered out.** Craigslist counts a shared room as "1br", so
   titles matching `EXCLUDE_KEYWORDS` are dropped.
 - **Distance is set in walking minutes**, not metres, because that's the number
@@ -229,15 +264,16 @@ pytest
 
 No network and no database of your own: `tests/conftest.py` points `DB_PATH` at a
 temporary file before `db.py` can connect, and the decoder tests run against real API
-responses captured into the test file. Covers the filter rules, the response decoding
-and the filter-storage migration.
+responses captured into the test file. Covers the filter rules, the response decoding,
+the filter-storage migration, and the digest's truncation and quiet-when-empty
+behaviour — nothing in the suite can send mail, since `smtp_send` is stubbed.
 
 ## Layout
 
 | File | Role |
 |---|---|
 | `craigslist.py` | The crawl, response decoding, and the filter rules |
-| `mailer.py` | SMTP sending, used by the optional reply-by-email path |
+| `mailer.py` | The digest email, and SMTP sending |
 | `inbox.py` | Reads your replies over IMAP; off unless `WATCH_INBOX=1` |
 | `notifier.py` | Twilio outbound texts, if SMS is enabled |
 | `replier.py` | Assisted and unattended reply to a listing |
@@ -245,7 +281,7 @@ and the filter-storage migration.
 | `settings.py` | Dashboard-adjustable filters, validated and persisted |
 | `enrich.py` | Year built, from the posting or city open data |
 | `db.py` | SQLite storage, dedupe, and the users/searches/alerts tables |
-| `tests/` | The filter rules, response decoding, and the settings migration |
+| `tests/` | Filter rules, response decoding, the settings migration, the digest |
 
 ## Fair warning
 

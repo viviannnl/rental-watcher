@@ -83,7 +83,16 @@ NOTIFY_CHANNEL = os.getenv("NOTIFY_CHANNEL", "email").strip().lower()
 NOTIFY_EMAIL = NOTIFY_CHANNEL in ("email", "both")
 NOTIFY_SMS = NOTIFY_CHANNEL in ("sms", "both")
 
-# --- Email (alerts to you, replies to landlords, and reading your responses) ---
+# At most one email per poll, summarising what it found. Set EMAIL_DIGEST=0 to rely
+# on the dashboard alone. The cap is there because a digest is a nudge, not a
+# catalogue: past a handful of places you'll open the dashboard regardless, and the
+# rest are counted rather than listed.
+EMAIL_DIGEST = os.getenv("EMAIL_DIGEST", "1") == "1"
+DIGEST_MAX = _i("DIGEST_MAX", 8)
+# Linked at the foot of the digest, so the email is one tap from the real thing.
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:5000").rstrip("/")
+
+# --- Email (the digest to you, replies to landlords, and reading your responses) ---
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = _i("SMTP_PORT", 587)
 SMTP_USER = os.getenv("SMTP_USER", "")

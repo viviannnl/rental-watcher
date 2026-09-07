@@ -1,8 +1,10 @@
-"""Sending mail: listing alerts to you, and intro messages to landlords.
+"""Sending mail: one digest of new listings to you, and intro messages to landlords.
 
-Email is the default alert channel because it needs no paid account, no phone
-number and no public webhook. Replies come back through IMAP (see inbox.py), so
-the whole loop runs over one Gmail App Password.
+A poll sends at most one email, listing the places it found. It used to send one per
+listing, which turned a normal evening into six messages that each said less than the
+dashboard already showed. The digest is truncated (DIGEST_MAX), because past the first
+handful you are going to open the dashboard anyway - so the email's job is to tell you
+there is something worth looking at, not to be the thing you look at.
 """
 
 import logging
@@ -20,9 +22,14 @@ def configured():
     return bool(config.SMTP_HOST and config.SMTP_USER and config.SMTP_PASS)
 
 
-def smtp_send(to_addr, subject, body, reply_to=None):
-    """Send one plain-text message. Returns the Message-ID, or None in dry run."""
-    if config.DRY_RUN:
+def smtp_send(to_addr, subject, body, reply_to=None, even_in_dry_run=False):
+    """Send one plain-text message. Returns the Message-ID, or None in dry run.
+
+    DRY_RUN exists so you can run this without contacting a stranger, so mail to your
+    own address is exempt when the caller says so - otherwise the only way to receive
+    your own digest would be to also arm real replies to landlords.
+    """
+    if config.DRY_RUN and not even_in_dry_run:
         log.info("[dry-run email to %s]\nSubject: %s\n\n%s\n", to_addr, subject, body)
         return None
     if not configured():
@@ -45,44 +52,67 @@ def smtp_send(to_addr, subject, body, reply_to=None):
     return msg["Message-ID"]
 
 
-def alert_subject(num, listing):
-    """Subject line carrying the listing number.
+def describe(listing):
+    """The one-line gist of a listing: what it costs, how big, how far."""
+    beds = listing.get("bedrooms")
+    parts = [listing.get("price_display") or "no price"]
+    if beds is not None:
+        parts.append("studio" if beds == 0 else f"{beds}br")
+    if listing.get("distance_m") is not None:
+        parts.append(f"{walk_minutes(round(listing['distance_m']))} min walk")
+    return " · ".join(parts)
 
-    inbox.py finds the number in the "Re: [#12] ..." subject of your reply, which
-    is how a reply gets matched back to a listing. Keep [#N] at the front.
+
+def digest_subject(items):
+    """One listing gets its details in the subject; several get counted.
+
+    With one find, the subject can say the whole thing and you never open anything.
+    With six, no subject can, so it shouldn't pretend by naming an arbitrary one.
     """
-    beds = "studio" if listing.get("bedrooms") == 0 else f"{listing.get('bedrooms')}br"
-    return f"[#{num}] {listing['price_display']} {beds} - {listing['title'][:70]}"
+    if len(items) == 1:
+        _num, listing = items[0]
+        return f"New rental: {describe(listing)} - {listing['title'][:60]}"
+    return f"{len(items)} new rentals near the office"
 
 
-def alert_body(num, listing):
-    metres = round(listing["distance_m"])
-    lines = [
-        f"  Price:    {listing['price_display']}",
-        f"  Distance: {metres} m from the office (~{walk_minutes(metres)} min walk)",
-    ]
-    if listing.get("address"):
-        lines.append(f"  Address:  {listing['address']}")
-    if listing.get("year_built"):
-        age = f"{listing['year_built']}"
-        if listing.get("year_source"):
-            age += f" (per {listing['year_source']})"
-        lines.append(f"  Built:    {age}")
-    body = "\n".join(lines)
+def digest_body(items, waiting=0, limit=None):
+    """The digest, newest first and truncated. `waiting` is what's unseen beyond these."""
+    limit = config.DIGEST_MAX if limit is None else limit
+    lines = []
+    for num, listing in items[:limit]:
+        lines.append(f"#{num}  {describe(listing)}")
+        lines.append(f"    {(listing.get('title') or '').strip()[:70]}")
+        if listing.get("address"):
+            extra = listing["address"]
+            if listing.get("year_built"):
+                extra += f", built {listing['year_built']}"
+            lines.append(f"    {extra}")
+        lines.append(f"    {listing.get('url') or ''}")
+        lines.append("")
 
-    return (
-        f"{listing['title']}\n\n"
-        f"{body}\n\n"
-        f"{listing['url']}\n\n"
-        f"---\n"
-        f"Reply to this email to send your intro message to the poster.\n"
-        f"Anything you type is ignored; replying at all is the go-ahead.\n"
-        f"Reply with \"no\" or \"skip\" to do nothing."
+    hidden = len(items) - len(items[:limit])
+    if hidden:
+        lines.append(f"...and {hidden} more found in this check.")
+    if waiting > 0:
+        lines.append(f"{waiting} other listing{'' if waiting == 1 else 's'} still unopened.")
+
+    return "\n".join(lines).rstrip() + (
+        f"\n\n---\n{config.DASHBOARD_URL}\n"
+        "Hit Send on a row there to fire off your intro message. Replying to this email\n"
+        "does nothing - a digest has no single poster to forward your words to."
     )
 
 
-def send_alert(num, listing, to=None):
-    return smtp_send(to or config.ALERT_EMAIL, alert_subject(num, listing), alert_body(num, listing))
+def send_digest(items, waiting=0, to=None):
+    """Mail yourself one summary of what a poll turned up. `items` is [(num, listing)]."""
+    if not items:
+        return None
+    return smtp_send(
+        to or config.ALERT_EMAIL,
+        digest_subject(items),
+        digest_body(items, waiting),
+        even_in_dry_run=True,
+    )
 
 
 def send_notice(subject, body, to=None):

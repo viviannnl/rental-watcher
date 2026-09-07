@@ -23,10 +23,10 @@ log = logging.getLogger("app")
 
 app = Flask(__name__)
 
-# New listings are announced in the dashboard, not by email, so there is no cap on
-# how many a poll may find - a hundred new rows is a long page, not a hundred
-# messages. What is still worth capping is enrichment, because each lookup costs a
-# page fetch plus an open-data query. The rest fill in on demand when you click.
+# A poll can find any number of listings: they become rows on a page and at most one
+# email, so volume costs nothing. What is still worth capping is enrichment, because
+# each lookup costs a page fetch plus an open-data query. The rest fill in on demand
+# when you click. The newest are done first, so the digest is the enriched end.
 ENRICH_PER_POLL = 5
 
 
@@ -50,9 +50,10 @@ def add_building_info(num, listing):
 def poll_once():
     """Fetch listings, store new ones, and mark the matching ones as new to look at.
 
-    Nothing is emailed. Five listings a poll meant five messages plus an overflow
-    notice, and none of it said anything the dashboard didn't already show - so new
-    places are announced there instead, and stay marked new until you've seen them.
+    Everything found is announced on the dashboard and stays marked new until you've
+    seen it. On top of that a poll sends at most one email summarising the batch -
+    where it used to send one per listing plus an overflow notice, which meant six
+    messages saying what one could.
 
     The very first poll seeds the database silently: everything on Craigslist right
     now is already old news, and flagging 300 of them as new would be useless.
@@ -96,12 +97,11 @@ def poll_once():
 
     # The crawl comes back newest first, so the enrichment budget goes to the newest
     # listings rather than whichever ones happen to be at the end of the list.
-    found, enriched = 0, 0
+    new_items, enriched = [], 0
     for item in fresh:
         num = db.add(item, notified=True)
         if num is None:
             continue
-        found += 1
         # Recorded against the search, not the listing: two searches can both need
         # telling about the same place, which a column on the listing can't express.
         # seen_at stays NULL, which is what makes the row show as new.
@@ -112,12 +112,33 @@ def poll_once():
                 enriched += 1
             except Exception:
                 log.exception("failed to enrich listing %s", num)
+        # After enrichment, so the digest can quote the address and year.
+        new_items.append((num, item))
 
     unseen = len(db.unseen_nums(settings.SEARCH_ID))
     log.info(
-        "poll: %d new (%d enriched), %d waiting to be looked at", found, enriched, unseen
+        "poll: %d new (%d enriched), %d waiting to be looked at",
+        len(new_items), enriched, unseen,
     )
-    return found
+    send_digest(new_items, waiting=unseen - len(new_items))
+    return len(new_items)
+
+
+def send_digest(new_items, waiting=0):
+    """One email for the whole poll, or none at all. Never fatal.
+
+    A failed send must not fail the poll: the listings are already stored and on the
+    dashboard, so losing the email costs a nudge, not data.
+    """
+    if not new_items or not config.EMAIL_DIGEST:
+        return
+    if not mailer.configured():
+        log.info("%d new listings, but SMTP isn't set up - see the dashboard", len(new_items))
+        return
+    try:
+        mailer.send_digest(new_items, waiting=max(waiting, 0))
+    except Exception:
+        log.exception("couldn't send the digest; the listings are on the dashboard anyway")
 
 
 def _record_poll():
@@ -496,7 +517,15 @@ def main():
         config.MIN_BEDROOMS, config.MAX_BEDROOMS, config.RADIUS_M,
         config.OFFICE_LAT, config.OFFICE_LON, config.POLL_MINUTES,
     )
-    log.info("new listings appear in the dashboard; nothing is emailed")
+    if config.EMAIL_DIGEST and mailer.configured():
+        log.info(
+            "new listings appear in the dashboard, plus one digest email per check to %s "
+            "(at most %d listed)%s",
+            config.ALERT_EMAIL, config.DIGEST_MAX,
+            " - sent for real even in dry run, since it only goes to you" if config.DRY_RUN else "",
+        )
+    else:
+        log.info("new listings appear in the dashboard; no email is sent")
     if "{availability}" not in config.REPLY_TEMPLATE:
         log.warning(
             "REPLY_MESSAGE has no {availability} placeholder, so AVAILABILITY (%r) "
