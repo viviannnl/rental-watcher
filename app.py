@@ -13,7 +13,6 @@ import db
 import enrich
 import inbox
 import mailer
-import notifier
 import replier
 import settings
 
@@ -24,9 +23,11 @@ log = logging.getLogger("app")
 
 app = Flask(__name__)
 
-# Cap how many alerts one poll can fire. Without this, a first run against a
-# tweaked filter (wider radius, higher price) would dump a hundred messages at once.
-MAX_ALERTS_PER_POLL = 5
+# New listings are announced in the dashboard, not by email, so there is no cap on
+# how many a poll may find - a hundred new rows is a long page, not a hundred
+# messages. What is still worth capping is enrichment, because each lookup costs a
+# page fetch plus an open-data query. The rest fill in on demand when you click.
+ENRICH_PER_POLL = 5
 
 
 def add_building_info(num, listing):
@@ -46,31 +47,15 @@ def add_building_info(num, listing):
     db.save_building_info(num, address, year, source)
 
 
-def alert(num, listing):
-    """Send one listing alert over whichever channels are enabled."""
-    sent = []
-    if config.NOTIFY_EMAIL:
-        mailer.send_alert(num, listing)
-        sent.append("email")
-    if config.NOTIFY_SMS:
-        notifier.send(notifier.listing_alert(num, listing))
-        sent.append("sms")
-    return sent
-
-
-def notice(subject, body):
-    """Tell yourself something that isn't about a specific listing."""
-    if config.NOTIFY_EMAIL:
-        mailer.send_notice(subject, body)
-    if config.NOTIFY_SMS:
-        notifier.send(body)
-
-
 def poll_once():
-    """Fetch listings, store new ones, alert about the ones worth knowing.
+    """Fetch listings, store new ones, and mark the matching ones as new to look at.
 
-    The very first poll seeds the database silently: everything on Craigslist
-    right now is already old news, and alerting on 100 of them would be useless.
+    Nothing is emailed. Five listings a poll meant five messages plus an overflow
+    notice, and none of it said anything the dashboard didn't already show - so new
+    places are announced there instead, and stay marked new until you've seen them.
+
+    The very first poll seeds the database silently: everything on Craigslist right
+    now is already old news, and flagging 300 of them as new would be useless.
     """
     s = settings.all_settings()
 
@@ -106,42 +91,33 @@ def poll_once():
         for item in fresh:
             db.add(item, notified=False)
         db.set_meta("seeded", "1")
-        log.info("first run: seeded %d existing listings without alerting", len(fresh))
+        log.info("first run: seeded %d existing listings without flagging them", len(fresh))
         return 0
 
-    # The crawl comes back newest first, so when we hit the per-poll cap the
-    # listings we drop are the older ones.
-    alerted = 0
+    # The crawl comes back newest first, so the enrichment budget goes to the newest
+    # listings rather than whichever ones happen to be at the end of the list.
+    found, enriched = 0, 0
     for item in fresh:
-        should_alert = alerted < MAX_ALERTS_PER_POLL
-        num = db.add(item, notified=should_alert)
-        if num is None or not should_alert:
+        num = db.add(item, notified=True)
+        if num is None:
             continue
-        try:
-            add_building_info(num, item)
-            sent = alert(num, item)
-            # Recorded per search, not per listing. listings.notified still drives
-            # behaviour; this is the row that will replace it, because "already
-            # alerted" can only be true for one person as a column on the listing.
-            db.record_alert(settings.SEARCH_ID, num, ",".join(sent) or None)
-            alerted += 1
-        except Exception:
-            log.exception("failed to alert about listing %s", num)
+        found += 1
+        # Recorded against the search, not the listing: two searches can both need
+        # telling about the same place, which a column on the listing can't express.
+        # seen_at stays NULL, which is what makes the row show as new.
+        db.record_alert(settings.SEARCH_ID, num)
+        if enriched < ENRICH_PER_POLL:
+            try:
+                add_building_info(num, item)
+                enriched += 1
+            except Exception:
+                log.exception("failed to enrich listing %s", num)
 
-    skipped = len(fresh) - alerted
-    if skipped > 0:
-        log.warning("%d new listings recorded but not alerted (per-poll cap)", skipped)
-        try:
-            notice(
-                f"{skipped} more listings matched",
-                f"{skipped} more new listings matched but weren't sent individually "
-                f"(cap is {MAX_ALERTS_PER_POLL} per poll). See the dashboard.",
-            )
-        except Exception:
-            log.exception("failed to send overflow notice")
-
-    log.info("poll: %d new, %d alerted", len(fresh), alerted)
-    return alerted
+    unseen = len(db.unseen_nums(settings.SEARCH_ID))
+    log.info(
+        "poll: %d new (%d enriched), %d waiting to be looked at", found, enriched, unseen
+    )
+    return found
 
 
 def _record_poll():
@@ -335,7 +311,7 @@ def _ago(iso):
     return f"{round(seconds / 86400)} d ago"
 
 
-def _render(errors=(), saved=None):
+def _render(errors=(), saved=None, clear_new=False):
     s = settings.all_settings()
     radius = settings.radius_m()
 
@@ -344,11 +320,13 @@ def _render(errors=(), saved=None):
     listings = db.recent(WINDOW)
     # Rows outlive the filters that found them - widen the radius, look around, narrow
     # it again, and the table keeps the strays. Marking them beats silently dropping
-    # them, because a place you already emailed shouldn't vanish. Same matcher the
-    # poll uses, so the table can't disagree with the alerts; keywords are left off
+    # them, because a place you already replied to shouldn't vanish. Same matcher the
+    # poll uses, so the table can't disagree with the poll; keywords are left off
     # because these rows already passed that gate when they were crawled.
+    unseen = db.unseen_nums(settings.SEARCH_ID)
     for item in listings:
         item["matches"] = craigslist.match(item, s)[0]
+        item["is_new"] = item["num"] in unseen
     mark_reposts(listings)
     total = len(listings)
     matching = sum(1 for item in listings if item["matches"] and not item["repost"])
@@ -358,6 +336,8 @@ def _render(errors=(), saved=None):
     if show == "match":
         listings = [item for item in listings if item["matches"] and not item["repost"]]
     listings.sort(key=SORTS.get(sort, SORTS["new"]))
+    shown = listings[:100]
+    new_count = sum(1 for item in shown if item["is_new"])
 
     last_poll = db.get_meta("last_poll")
     # Twice the interval is the grace period: one skipped cycle is a blip, two
@@ -371,9 +351,10 @@ def _render(errors=(), saved=None):
         except ValueError:
             pass
 
-    return render_template(
+    html = render_template(
         "dashboard.html",
-        listings=listings[:100],
+        listings=shown,
+        new_count=new_count,
         total=total,
         matching=matching,
         show=show,
@@ -391,16 +372,21 @@ def _render(errors=(), saved=None):
         saved=saved,
         walk=craigslist.walk_minutes,
         playwright=replier.playwright_available(),
-        twilio=notifier.configured(),
-        email_ready=mailer.configured(),
-        inbox_ready=config.WATCH_INBOX and inbox.configured(),
         placeholders=replier.unfilled_placeholders(),
     )
+
+    # Cleared after rendering, so the badges appear on the page that clears them and
+    # are gone by the next load. Only the rows actually on the page count as looked
+    # at: anything past the 100-row cut, or hidden by the Matching toggle, wasn't
+    # shown to you and shouldn't quietly stop being new.
+    if clear_new and new_count:
+        db.mark_seen(settings.SEARCH_ID, [item["num"] for item in shown if item["is_new"]])
+    return html
 
 
 @app.get("/")
 def dashboard():
-    return _render()
+    return _render(clear_new=True)
 
 
 @app.post("/settings")
@@ -442,7 +428,7 @@ def manual_poll():
     found = poll_once()
     _record_poll()
     return _render(
-        saved=f"Checked Craigslist - {found} new listing{'' if found == 1 else 's'} alerted."
+        saved=f"Checked Craigslist - {found} new listing{'' if found == 1 else 's'} found."
     )
 
 
@@ -510,11 +496,7 @@ def main():
         config.MIN_BEDROOMS, config.MAX_BEDROOMS, config.RADIUS_M,
         config.OFFICE_LAT, config.OFFICE_LON, config.POLL_MINUTES,
     )
-    log.info("alert channel: %s", config.NOTIFY_CHANNEL)
-    if config.NOTIFY_EMAIL and not mailer.configured():
-        log.warning("email alerts enabled but SMTP is not configured - alerts will only be logged")
-    if config.NOTIFY_SMS and not notifier.configured():
-        log.warning("sms alerts enabled but Twilio is not configured - alerts will only be logged")
+    log.info("new listings appear in the dashboard; nothing is emailed")
     if "{availability}" not in config.REPLY_TEMPLATE:
         log.warning(
             "REPLY_MESSAGE has no {availability} placeholder, so AVAILABILITY (%r) "
@@ -530,11 +512,12 @@ def main():
         )
     threading.Thread(target=poller, daemon=True).start()
 
+    # Off by default now. It exists to let you reply to an alert email, and there are
+    # no alert emails - leaving it on meant every reply you sent triggered a captcha
+    # attempt and mailed you back about it, which is exactly the noise this removed.
     if config.WATCH_INBOX and inbox.configured() and not config.DRY_RUN:
         log.info("watching %s for replies every %ds", config.IMAP_FOLDER, config.INBOX_POLL_SECONDS)
         threading.Thread(target=inbox_watcher, daemon=True).start()
-    elif config.WATCH_INBOX and config.DRY_RUN:
-        log.info("dry run: not watching the inbox (nothing was emailed to reply to)")
 
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
 

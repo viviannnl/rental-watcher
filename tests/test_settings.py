@@ -122,3 +122,53 @@ def test_alerts_are_tracked_per_search_not_per_listing():
     assert db.record_alert(settings.SEARCH_ID, num) is True
     assert db.record_alert(other, num) is True
     assert db.alerted_nums(other) == {num}
+
+
+# --- new / seen -----------------------------------------------------------
+
+def test_a_surfaced_listing_starts_unseen():
+    """Unseen is what makes it show as new, so it has to be the default state."""
+    num = db.add({"cl_id": "unseen-1", "url": "u", "title": "t"}, notified=True)
+    db.record_alert(settings.SEARCH_ID, num)
+    assert num in db.unseen_nums(settings.SEARCH_ID)
+
+
+def test_mark_seen_clears_only_the_listings_named():
+    """The dashboard shows at most 100 rows and hides non-matching ones, so marking
+    everything seen would silently retire places you were never shown."""
+    shown = db.add({"cl_id": "seen-shown", "url": "u", "title": "t"}, notified=True)
+    hidden = db.add({"cl_id": "seen-hidden", "url": "u", "title": "t"}, notified=True)
+    db.record_alert(settings.SEARCH_ID, shown)
+    db.record_alert(settings.SEARCH_ID, hidden)
+
+    assert db.mark_seen(settings.SEARCH_ID, [shown]) == 1
+    unseen = db.unseen_nums(settings.SEARCH_ID)
+    assert shown not in unseen and hidden in unseen
+
+
+def test_mark_seen_is_not_undone_by_a_later_sweep():
+    num = db.add({"cl_id": "seen-twice", "url": "u", "title": "t"}, notified=True)
+    db.record_alert(settings.SEARCH_ID, num)
+    db.mark_seen(settings.SEARCH_ID, [num])
+    # Already seen, so there is nothing left for a second call to do.
+    assert db.mark_seen(settings.SEARCH_ID, [num]) == 0
+    assert num not in db.unseen_nums(settings.SEARCH_ID)
+
+
+def test_mark_seen_with_no_listings_does_nothing():
+    """An empty list must not be read as "all of them"."""
+    num = db.add({"cl_id": "seen-none", "url": "u", "title": "t"}, notified=True)
+    db.record_alert(settings.SEARCH_ID, num)
+    assert db.mark_seen(settings.SEARCH_ID, []) == 0
+    assert num in db.unseen_nums(settings.SEARCH_ID)
+
+
+def test_unseen_is_per_search():
+    num = db.add({"cl_id": "unseen-shared", "url": "u", "title": "t"}, notified=True)
+    other = db.create_search(settings.USER_ID, settings.DEFAULTS, name="third")
+    db.record_alert(settings.SEARCH_ID, num)
+    db.record_alert(other, num)
+    db.mark_seen(settings.SEARCH_ID, [num])
+    # One person having looked says nothing about the other.
+    assert num not in db.unseen_nums(settings.SEARCH_ID)
+    assert num in db.unseen_nums(other)

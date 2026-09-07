@@ -1,11 +1,14 @@
 # Rental watcher
 
 Polls Craigslist Vancouver for new studio/1-bedroom rentals within walking
-distance of Amazon YVR14 (402 Dunsmuir St) and emails you each one with a link.
-Reply to that email and it sends the poster your pre-set intro message.
+distance of Amazon YVR14 (402 Dunsmuir St) and shows them on a dashboard, marked
+new until you've looked at them. Hit **Send** on a row to reply to the poster with
+your pre-set intro message.
 
-Email is the default because it needs nothing but a Gmail App Password. SMS is
-supported too, but needs a paid Twilio account and a public URL.
+**Nothing is emailed.** It used to send one email per matching listing plus an
+overflow summary, which meant five or six messages per poll saying nothing the
+dashboard didn't already show. New places are announced on the page instead. That
+does mean you have to open it — this tells you what's new, it doesn't interrupt you.
 
 ## Is Craigslist scrapable?
 
@@ -60,8 +63,8 @@ has no rooftop pin for 402 Dunsmuir, so the default is a street-level estimate:
 Open the map link it prints. If the pin isn't on the building, right-click the
 building in Google Maps, copy the coordinates, and set `OFFICE_LAT`/`OFFICE_LON`.
 
-Try it without sending anything real by setting `DRY_RUN=1` — texts and emails go
-to the log instead.
+`DRY_RUN=1` writes intro messages to the log instead of contacting anyone. Listings
+are still found and shown either way, so this only affects **Send**.
 
 ```bash
 .venv/bin/python app.py     # dashboard on http://localhost:5000
@@ -79,35 +82,39 @@ cloudflared tunnel --url http://localhost:5000     # or: ngrok http 5000
 Inbound requests are rejected unless they carry a valid Twilio signature, since
 that endpoint is public.
 
-## Alerts: email by default
+## How you find out about new places
 
-`NOTIFY_CHANNEL=email` is the default because it needs one credential and nothing
-else: a Gmail App Password. No phone number, no paid account, and crucially **no
-public URL** — replies are read by connecting out over IMAP rather than having a
-provider push a webhook at you, so there is no tunnel to keep running.
+The dashboard, and only the dashboard. New listings carry a **new** badge and a
+count in the header until the page has shown them to you, then the badge clears
+itself. "New" means "you haven't had a chance to look at this", not "arrived
+recently" — so a place found overnight is still marked new in the morning.
 
-The loop:
+Only rows actually on the page count as looked at. Anything past the 100-row cut, or
+hidden by the **Matching** toggle, stays new.
 
-1. A new listing arrives, and you get an email subjected `[#12] $2,395 1br - ...`
-2. You reply to that email. Anything you type counts as "go ahead"; opening the
-   reply with `no` or `skip` means do nothing.
-3. Within a minute the app notices, matches `[#12]` in your `Re:` subject back to
-   the listing, sends your intro, and emails you what happened.
+### Replying by email (off by default)
 
-Turn reply-watching off with `WATCH_INBOX=0` if you only want the alerts.
+There is an older path where alert emails could be replied to, and the reply
+triggered the intro message. `WATCH_INBOX=0` disables it and that is now the
+default: with no alert emails to reply to, every message you sent to that mailbox
+just produced a failed captcha attempt and a report about it. The code is still
+there — `WATCH_INBOX=1` plus SMTP/IMAP credentials brings it back — but **Send** on
+the dashboard does the same job without the round trip.
 
 ### Why not SMS?
 
-`NOTIFY_CHANNEL=sms` still works but needs a **paid** Twilio account. Trial
-accounts can only send from a fixed list of canned templates, so arbitrary text
-like a listing title is rejected outright:
+Listing alerts aren't sent over SMS either, and wouldn't be worth it if they were: a
+**paid** Twilio account is required, because trial accounts can only send from a
+fixed list of canned templates, so arbitrary text like a listing title is rejected
+outright:
 
 ```
 HTTP 400: Invalid template name. Trial accounts can only use predefined SMS templates.
 ```
 
-SMS also needs a public webhook for replies, which means keeping a tunnel up. Use
-`NOTIFY_CHANNEL=both` if you want texts and email together.
+The `/sms` webhook survives so you can text a listing number to reply to it, which
+needs a public URL and therefore a tunnel. `NOTIFY_CHANNEL` no longer affects
+whether you hear about listings — that's the dashboard, always.
 
 ## Twilio credentials
 
@@ -133,9 +140,9 @@ from then on, and a field that differs shows what `.env` says underneath it.
 
 Two things worth knowing:
 
-- **Widening the radius or price range can produce a burst of alerts.** Listings
+- **Widening the radius or price range can produce a burst of new rows.** Listings
   filtered out before were never recorded, so they look new when they come into
-  range. The 5-per-poll cap absorbs it and the rest land on the dashboard.
+  range. Harmless now that a burst is a longer page rather than a stack of emails.
 - **Moving the office recomputes every stored distance**, so old rows don't keep
   showing how far they were from the previous location.
 
@@ -159,8 +166,9 @@ What it deliberately does *not* do is reverse-geocode the listing's coordinates 
 guess an address. Craigslist rounds coordinates to anonymise them, so that would
 confidently report the wrong building's age — worse than admitting it's unknown.
 
-Set `LOOKUP_YEAR_BUILT=0` to skip it. It costs one page fetch per alerted listing,
-so at most a handful per poll, and results are cached per address.
+Set `LOOKUP_YEAR_BUILT=0` to skip it. It costs one page fetch plus an open-data
+query per listing, so a poll only enriches the newest few (`ENRICH_PER_POLL`, 5) and
+leaves the rest to the **look up** link. Results are cached per address.
 
 ### Dataset quirks
 
@@ -188,10 +196,10 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
 
 ## How it behaves
 
-- **First run alerts nothing.** Every listing currently up is already old news, so
-  the first poll records them silently and only later arrivals get sent.
-- **At most 5 alerts per poll**, with a summary message if more matched. Without
-  this a widened filter would dump a hundred messages at once.
+- **First run flags nothing as new.** Every listing currently up is already old news,
+  so the first poll records them silently and only later arrivals are marked.
+- **No cap on how many a poll can find.** There was one, back when each match meant
+  an email. A hundred new rows is a long page, not a hundred messages.
 - **Room shares are filtered out.** Craigslist counts a shared room as "1br", so
   titles matching `EXCLUDE_KEYWORDS` are dropped.
 - **Distance is set in walking minutes**, not metres, because that's the number
@@ -229,8 +237,8 @@ and the filter-storage migration.
 | File | Role |
 |---|---|
 | `craigslist.py` | The crawl, response decoding, and the filter rules |
-| `mailer.py` | Alert emails to you, and the SMTP send used for intros |
-| `inbox.py` | Reads your replies over IMAP; the email answer to a webhook |
+| `mailer.py` | SMTP sending, used by the optional reply-by-email path |
+| `inbox.py` | Reads your replies over IMAP; off unless `WATCH_INBOX=1` |
 | `notifier.py` | Twilio outbound texts, if SMS is enabled |
 | `replier.py` | Assisted and unattended reply to a listing |
 | `app.py` | Flask routes, background poller, inbox watcher |

@@ -59,17 +59,22 @@ _conn.executescript("""
         created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
-    -- Who has been told about what. listings stays shared and un-owned, because a
-    -- posting is a fact about the world, not about a subscriber - two people watching
-    -- the same block should cost one crawl and one row, not two of each. This is the
-    -- table that makes that safe: it moves "already alerted" off the listing, where
-    -- it can only ever be true for one person, and onto the pair.
+    -- What each search has surfaced, and whether it has been looked at. listings
+    -- stays shared and un-owned, because a posting is a fact about the world, not
+    -- about a subscriber - two people watching the same block should cost one crawl
+    -- and one row, not two of each. This is the table that makes that safe: it moves
+    -- "already surfaced" off the listing, where it can only ever be true for one
+    -- person, and onto the pair.
+    --
+    -- seen_at NULL is what makes a row show as new in the dashboard, which is the
+    -- only place anything is announced now.
     CREATE TABLE IF NOT EXISTS alerts (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         search_id   INTEGER NOT NULL REFERENCES searches(id),
         listing_num INTEGER NOT NULL REFERENCES listings(num),
         channel     TEXT,
         sent_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        seen_at     TEXT,
         UNIQUE (search_id, listing_num)
     );
     CREATE INDEX IF NOT EXISTS alerts_by_search ON alerts (search_id, listing_num);
@@ -77,12 +82,21 @@ _conn.executescript("""
 _conn.commit()
 
 
+# Columns added after a table first shipped. CREATE TABLE IF NOT EXISTS won't add
+# them to a database that already has the table, so they go on by ALTER instead.
+_ADDED_COLUMNS = {
+    "listings": (("address", "TEXT"), ("year_built", "INTEGER"), ("year_source", "TEXT")),
+    "alerts": (("seen_at", "TEXT"),),
+}
+
+
 def _add_missing_columns():
     """Bring an older database up to date without discarding what's in it."""
-    have = {r["name"] for r in _conn.execute("PRAGMA table_info(listings)")}
-    for name, decl in (("address", "TEXT"), ("year_built", "INTEGER"), ("year_source", "TEXT")):
-        if name not in have:
-            _conn.execute(f"ALTER TABLE listings ADD COLUMN {name} {decl}")
+    for table, columns in _ADDED_COLUMNS.items():
+        have = {r["name"] for r in _conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns:
+            if name not in have:
+                _conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
     _conn.commit()
 
 
@@ -115,6 +129,10 @@ def _q(sql, args=(), fetch=None):
             out = dict(row) if row else None
         elif fetch == "all":
             out = [dict(r) for r in cur.fetchall()]
+        elif fetch == "count":
+            # How many rows an UPDATE or DELETE touched. lastrowid means nothing for
+            # those, so asking for it silently returns a stale id.
+            out = cur.rowcount
         else:
             out = cur.lastrowid
         _conn.commit()
@@ -255,12 +273,12 @@ def update_search(search_id, filters):
     )
 
 
-def record_alert(search_id, listing_num, channel=None):
-    """Note that this search has been told about this listing.
+def record_alert(search_id, listing_num, channel="dashboard"):
+    """Note that this search has surfaced this listing, unseen until looked at.
 
-    Returns False if it already had been. The UNIQUE constraint is doing the real
-    work: it makes a duplicate alert impossible even if two polls overlap, rather
-    than relying on the caller to check first.
+    Returns False if it had already been surfaced. The UNIQUE constraint is doing the
+    real work: it makes a duplicate impossible even if two polls overlap, rather than
+    relying on the caller to check first.
     """
     with _lock:
         cur = _conn.execute(
@@ -274,13 +292,49 @@ def record_alert(search_id, listing_num, channel=None):
 
 
 def alerted_nums(search_id):
-    """Listing numbers this search has already been told about."""
+    """Listing numbers this search has already surfaced."""
     return {
         r["listing_num"]
         for r in _q(
             "SELECT listing_num FROM alerts WHERE search_id = ?", (search_id,), fetch="all"
         )
     }
+
+
+def unseen_nums(search_id):
+    """Listing numbers surfaced to this search but not yet looked at."""
+    return {
+        r["listing_num"]
+        for r in _q(
+            "SELECT listing_num FROM alerts WHERE search_id = ? AND seen_at IS NULL",
+            (search_id,),
+            fetch="all",
+        )
+    }
+
+
+def mark_seen(search_id, listing_nums=None):
+    """Stop the named listings (or all of them) counting as new. Returns how many.
+
+    Called once the dashboard has actually rendered them, so "new" means "you haven't
+    had a chance to look at this yet" rather than "arrived recently".
+    """
+    if listing_nums is None:
+        return _q(
+            "UPDATE alerts SET seen_at = datetime('now', 'localtime')"
+            " WHERE search_id = ? AND seen_at IS NULL",
+            (search_id,),
+            fetch="count",
+        )
+    if not listing_nums:
+        return 0
+    holes = ", ".join("?" * len(listing_nums))
+    return _q(
+        f"UPDATE alerts SET seen_at = datetime('now', 'localtime')"
+        f" WHERE search_id = ? AND seen_at IS NULL AND listing_num IN ({holes})",
+        (search_id, *listing_nums),
+        fetch="count",
+    )
 
 
 def recompute_distances(lat, lon, haversine):
