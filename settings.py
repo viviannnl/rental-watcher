@@ -21,13 +21,21 @@ META_PREFIX = "setting:"
 # name -> (caster, low, high, label). Bounds are sanity rails, not preferences:
 # an hour's walk or a negative price is a mistake, not a choice.
 SPEC = {
-    "walk_minutes": (int, 1, 60, "Max walk from office (min)"),
+    "walk_minutes": (int, 1, 60, "Max walk (min)"),
     "min_price": (int, 0, 100000, "Min price ($)"),
-    "max_price": (int, 0, 100000, "Max price ($, 0 = no cap)"),
-    "min_bedrooms": (int, 0, 5, "Min bedrooms (0 = studio)"),
+    "max_price": (int, 0, 100000, "Max price ($)"),
+    "min_bedrooms": (int, 0, 5, "Min bedrooms"),
     "max_bedrooms": (int, 0, 5, "Max bedrooms"),
     "office_lat": (float, 48.0, 50.5, "Office latitude"),
     "office_lon": (float, -124.5, -122.0, "Office longitude"),
+}
+
+# Shown on hover. Kept out of the labels so they stay short enough not to wrap,
+# which was knocking the inputs out of alignment with each other.
+NOTES = {
+    "walk_minutes": "Straight-line radius is derived from this, allowing for detours",
+    "max_price": "0 means no upper limit",
+    "min_bedrooms": "0 includes studios",
 }
 
 DEFAULTS = {

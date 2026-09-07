@@ -121,6 +121,8 @@
 
     /* ---- filters ---- */
     .grid { display: grid; gap: .85rem 1rem; }
+    /* Bottom-align the inputs so a wrapped label or a chip can't stagger the row. */
+    .grid > div { display: flex; flex-direction: column; justify-content: flex-end; }
     .grid.five { grid-template-columns: repeat(5, 1fr); }
     .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 26rem; }
     @media (max-width: 860px) { .grid.five { grid-template-columns: repeat(2, 1fr); } }
@@ -152,7 +154,12 @@
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
     .hint { font-size: .72rem; color: var(--ink-3); margin-top: .25rem; }
-    .hint.changed { color: var(--accent); }
+    .chip {
+      font-size: .64rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; padding: .05rem .3rem; border-radius: 3px;
+      background: var(--accent-soft); color: var(--accent); cursor: help;
+      vertical-align: 1px; margin-left: .15rem;
+    }
     .row { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; margin-top: 1.1rem; }
 
     /* ---- buttons ---- */
@@ -315,13 +322,18 @@
         {% macro field(name) %}
           {% set caster, low, high, label = spec[name] %}
           <div>
-            <label for="{{ name }}">{{ label }}</label>
+            {# A differing value is normal, not a problem, so it gets a quiet chip
+               rather than coloured text under the input - that read as "unsaved". #}
+            <label for="{{ name }}"{% if notes.get(name) %} title="{{ notes[name] }}"{% endif %}>
+              {{ label }}
+              {% if settings[name] != defaults[name] %}
+                <span class="chip"
+                      title="Saved. The value in your .env file is {{ defaults[name] }}.">yours</span>
+              {% endif %}
+            </label>
             <input type="number" id="{{ name }}" name="{{ name }}"
                    value="{{ settings[name] }}" min="{{ low }}" max="{{ high }}"
                    step="{{ '0.0001' if caster.__name__ == 'float' else '1' }}">
-            {% if settings[name] != defaults[name] %}
-              <div class="hint changed">.env says {{ defaults[name] }}</div>
-            {% endif %}
           </div>
         {% endmacro %}
 
@@ -342,7 +354,10 @@
 
         <div class="row">
           <button class="primary" type="submit">Save filters</button>
-          <button type="submit" name="reset" value="1">Reset to .env</button>
+          <button type="submit" name="reset" value="1"
+                  onclick="return confirm('Discard every filter you have saved here and go back to the values in .env?')">
+            Reset to .env
+          </button>
         </div>
       </div>
     </section>

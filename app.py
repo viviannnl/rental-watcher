@@ -232,6 +232,7 @@ def _render(errors=(), saved=None):
         config=config,
         settings=settings.all_settings(),
         spec=settings.SPEC,
+        notes=settings.NOTES,
         defaults=settings.DEFAULTS,
         radius_m=settings.radius_m(),
         errors=list(errors),
@@ -253,14 +254,21 @@ def dashboard():
 @app.post("/settings")
 def save_settings():
     if request.form.get("reset"):
+        before = settings.all_settings()
         settings.reset()
-        return _render(saved="Filters reset to the values in .env.")
+        after = settings.all_settings()
+        dropped = {k: before[k] for k in before if before[k] != after[k]}
+        log.info("filters reset to .env, discarding %s", dropped or "nothing")
+        return _render(
+            saved="Reset to the values in .env."
+            + (f" Discarded {', '.join(k.replace('_', ' ') for k in dropped)}." if dropped else "")
+        )
 
     changed, errors = settings.update(request.form.to_dict())
     if errors:
         return _render(errors=errors), 400
     if not changed:
-        return _render(saved="No changes.")
+        return _render(saved="Already saved - nothing to change.")
 
     # A new office location makes every stored distance wrong, so redo them.
     if "office_lat" in changed or "office_lon" in changed:
@@ -269,7 +277,7 @@ def save_settings():
         log.info("recomputed distances for %d listings", n)
 
     summary = ", ".join(f"{k.replace('_', ' ')} to {v}" for k, v in changed.items())
-    return _render(saved=f"Updated {summary}. Applies from the next check onward.")
+    return _render(saved=f"Saved {summary}. This sticks until you change it again.")
 
 
 @app.post("/check-inbox")
