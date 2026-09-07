@@ -151,7 +151,9 @@ Craigslist has no year-built field, so this uses two sources in order:
 Expect this to resolve for **roughly half** of listings. The limit is Craigslist,
 not the lookup: many posts give a cross-street ("Beatty near Dunsmuir") or no
 address at all, and without a civic number there is nothing to query. Rows the
-poll didn't cover get a **look up** link on the dashboard to fetch one on demand.
+poll didn't cover get a **look up** link on the dashboard, which fills that one cell
+in place rather than reloading — a re-render would scroll you away from the row you
+were reading. It degrades to a normal form post if JavaScript is off.
 
 What it deliberately does *not* do is reverse-geocode the listing's coordinates to
 guess an address. Craigslist rounds coordinates to anonymise them, so that would

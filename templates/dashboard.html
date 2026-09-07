@@ -406,14 +406,15 @@
               <span style="width: {{ [(l.distance_m / radius_m * 100), 100]|min|round|int }}%"></span>
             </div>
           </td>
-          <td class="built">
+          <td class="built" data-built-for="{{ l.num }}">
             {% if l.year_built %}
               <b title="Source: {{ l.year_source }}">{{ l.year_built }}</b>
             {% elif l.year_source is none and l.address %}
               <span class="muted" title="No record for {{ l.address }}">none</span>
             {% else %}
-              <form class="inline" method="post" action="/building/{{ l.num }}">
-                <button class="link" type="submit" title="Fetch the posting and look up its age">look up</button>
+              <form class="inline lookup" method="post" action="/building/{{ l.num }}">
+                <button class="link" type="submit"
+                        title="Fetch the posting and look up its age">look up</button>
               </form>
             {% endif %}
           </td>
@@ -421,7 +422,7 @@
             <a class="listing" href="{{ l.url }}" target="_blank" rel="noopener">
               <span class="listing-title">{{ l.title }}</span>
             </a>
-            {% if l.address %}<div class="meta">{{ l.address }}</div>{% endif %}
+            <div class="meta" data-address-for="{{ l.num }}">{{ l.address or "" }}</div>
           </td>
           {# Tag the ones that DID alert. Flagging the others instead would put a
              badge on every row after a first run, which carries no information. #}
@@ -457,5 +458,47 @@
   </section>
 
 </div>
+
+<script>
+// Look up a building's age without reloading: a full re-render would jump you back
+// to the top, away from the row you were reading. Progressive enhancement - if this
+// script doesn't run, the form posts normally and the page still works.
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest("form.lookup");
+  if (!form) return;
+  event.preventDefault();
+
+  var cell = form.closest("td");
+  var num = cell.getAttribute("data-built-for");
+  var button = form.querySelector("button");
+  button.disabled = true;
+  button.textContent = "looking…";
+
+  fetch(form.action, { method: "POST", headers: { Accept: "application/json" } })
+    .then(function (response) {
+      if (!response.ok) throw new Error(response.status);
+      return response.json();
+    })
+    .then(function (data) {
+      if (data.year_built) {
+        cell.innerHTML =
+          '<b title="Source: ' + data.year_source + '">' + data.year_built + "</b>";
+      } else {
+        var span = document.createElement("span");
+        span.className = "muted";
+        span.title = data.note;
+        span.textContent = "none";
+        cell.replaceChildren(span);
+      }
+      var addr = document.querySelector('[data-address-for="' + num + '"]');
+      if (addr && data.address) addr.textContent = data.address;
+    })
+    .catch(function () {
+      button.disabled = false;
+      button.textContent = "retry";
+      button.title = "That lookup failed. Click to try again.";
+    });
+});
+</script>
 </body>
 </html>

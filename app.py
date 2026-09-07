@@ -321,18 +321,33 @@ def manual_reply(num):
 
 @app.post("/building/<int:num>")
 def building(num):
-    """Look up one listing's age on demand, for rows the poll didn't cover."""
+    """Look up one listing's age on demand, for rows the poll didn't cover.
+
+    Answers JSON when the page asks for it, so the dashboard can update the one
+    cell in place. Re-rendering the whole page would scroll you back to the top,
+    away from the row you were looking at. The form still works without JS.
+    """
     listing = db.get(num)
     if not listing:
         abort(404)
     add_building_info(num, dict(listing))
     fresh = db.get(num)
+
     if fresh["year_built"]:
         note = f"#{num} was built in {fresh['year_built']} (per {fresh['year_source']})."
     elif fresh["address"]:
         note = f"#{num}: no record found for {fresh['address']}."
     else:
-        note = f"#{num}: the posting doesn't give a street address, so there's nothing to look up."
+        note = f"#{num}: the posting gives no street address, so there's nothing to look up."
+
+    if request.accept_mimetypes.best == "application/json":
+        return {
+            "num": num,
+            "year_built": fresh["year_built"],
+            "year_source": fresh["year_source"],
+            "address": fresh["address"],
+            "note": note,
+        }
     return _render(saved=note)
 
 
