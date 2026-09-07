@@ -5,151 +5,421 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rental watcher</title>
   <style>
-    :root { color-scheme: light dark; }
-    body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 2rem; max-width: 60rem; }
-    h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
-    .sub { opacity: .7; font-size: .85rem; margin-bottom: 1.5rem; }
-    .warn { background: #fff4e5; border-left: 3px solid #e59700; padding: .6rem .8rem;
-            margin: 0 0 1rem; font-size: .85rem; color: #000; }
-    table { border-collapse: collapse; width: 100%; font-size: .88rem; }
-    th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid rgba(128,128,128,.25); }
-    th { font-weight: 600; opacity: .65; font-size: .78rem; text-transform: uppercase; }
-    td.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .title { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tag { font-size: .72rem; padding: .1rem .4rem; border-radius: 3px; background: rgba(128,128,128,.2); }
-    .ok { background: rgba(40,160,70,.22); }
-    button { font: inherit; padding: .3rem .7rem; cursor: pointer; }
+    /* Palette is defined once per scheme so light and dark stay in step. */
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f9;
+      --card: #ffffff;
+      --ink: #16171a;
+      --ink-2: #5c6068;
+      --ink-3: #8d929b;
+      --line: #e4e5e9;
+      --line-2: #d3d5db;
+      --accent: #3b5bdb;
+      --accent-soft: #edf0fd;
+      --good: #1f7a3d;
+      --good-soft: #e7f4ec;
+      --warn: #9a5b00;
+      --warn-soft: #fdf2e0;
+      --bad: #b3261e;
+      --bad-soft: #fdecea;
+      --radius: 10px;
+      --shadow: 0 1px 2px rgba(16,17,26,.05), 0 1px 8px rgba(16,17,26,.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #16171a;
+        --card: #1e2024;
+        --ink: #eceef2;
+        --ink-2: #a2a8b3;
+        --ink-3: #767c87;
+        --line: #2c2f35;
+        --line-2: #3a3e46;
+        --accent: #8ba4ff;
+        --accent-soft: #22273a;
+        --good: #6ddc95;
+        --good-soft: #17291d;
+        --warn: #f0b354;
+        --warn-soft: #2b2216;
+        --bad: #ff8b80;
+        --bad-soft: #2e1a18;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 8px rgba(0,0,0,.2);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 2rem 1.25rem 4rem;
+      background: var(--bg); color: var(--ink);
+      font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 68rem; margin: 0 auto; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ---- header ---- */
+    header { margin-bottom: 1.5rem; }
+    h1 {
+      font-size: 1.45rem; font-weight: 650; letter-spacing: -.02em;
+      margin: 0 0 .55rem; display: flex; align-items: center; gap: .55rem;
+    }
+    h1 .dot {
+      width: .5rem; height: .5rem; border-radius: 50%;
+      background: var(--good); box-shadow: 0 0 0 3px var(--good-soft);
+    }
+    .pills { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .pill {
+      font-size: .78rem; color: var(--ink-2); background: var(--card);
+      border: 1px solid var(--line); border-radius: 99px; padding: .2rem .6rem;
+      display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap;
+    }
+    .pill strong { color: var(--ink); font-weight: 600; }
+
+    /* ---- cards ---- */
+    .card {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1.1rem;
+    }
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: .8rem 1.1rem; border-bottom: 1px solid var(--line);
+    }
+    .card-title {
+      font-size: .74rem; font-weight: 680; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--ink-3); margin: 0;
+    }
+    .card-body { padding: 1.1rem; }
+
+    /* ---- alerts ---- */
+    .alert {
+      display: flex; gap: .6rem; align-items: flex-start;
+      border-radius: var(--radius); padding: .65rem .85rem; margin-bottom: 1.1rem;
+      font-size: .87rem; border: 1px solid transparent;
+    }
+    .alert .ico { flex: none; font-weight: 700; line-height: 1.4; }
+    .alert.good { background: var(--good-soft); color: var(--good); border-color: var(--good); }
+    .alert.bad  { background: var(--bad-soft);  color: var(--bad);  border-color: var(--bad); }
+    .alert ul { margin: .3rem 0 0; padding-left: 1.1rem; }
+
+    /* ---- setup checklist ---- */
+    .notice { display: flex; gap: .65rem; padding: .6rem 0; border-top: 1px solid var(--line); }
+    .notice:first-child { border-top: 0; padding-top: 0; }
+    .notice:last-child { padding-bottom: 0; }
+    .notice .badge {
+      flex: none; margin-top: .18rem; width: .55rem; height: .55rem; border-radius: 50%;
+    }
+    .badge.blocked { background: var(--bad); }
+    .badge.heads-up { background: var(--warn); }
+    .notice-text { font-size: .87rem; color: var(--ink-2); }
+    .notice-text b { color: var(--ink); font-weight: 620; }
+    code {
+      font: .84em ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--bg); border: 1px solid var(--line);
+      border-radius: 4px; padding: .05rem .3rem;
+    }
+
+    /* ---- filters ---- */
+    .grid { display: grid; gap: .85rem 1rem; }
+    .grid.five { grid-template-columns: repeat(5, 1fr); }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 26rem; }
+    @media (max-width: 860px) { .grid.five { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 460px) {
+      .grid.five, .grid.two { grid-template-columns: 1fr; }
+    }
+    .advanced { margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+    .advanced summary {
+      cursor: pointer; font-size: .78rem; font-weight: 580; color: var(--ink-2);
+      list-style: none; display: inline-flex; align-items: center; gap: .35rem;
+    }
+    .advanced summary::-webkit-details-marker { display: none; }
+    .advanced summary::before { content: "▸"; color: var(--ink-3); font-size: .7rem; }
+    .advanced[open] summary::before { content: "▾"; }
+    .advanced summary:hover { color: var(--ink); }
+    .advanced .grid { margin-top: .8rem; }
+    label {
+      display: block; font-size: .76rem; font-weight: 560;
+      color: var(--ink-2); margin-bottom: .3rem;
+    }
+    input[type=number] {
+      font: inherit; width: 100%; padding: .42rem .55rem;
+      color: var(--ink); background: var(--bg);
+      border: 1px solid var(--line-2); border-radius: 7px;
+      transition: border-color .12s, box-shadow .12s;
+    }
+    input[type=number]:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .hint { font-size: .72rem; color: var(--ink-3); margin-top: .25rem; }
+    .hint.changed { color: var(--accent); }
+    .row { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; margin-top: 1.1rem; }
+
+    /* ---- buttons ---- */
+    button {
+      font: inherit; font-weight: 560; cursor: pointer;
+      padding: .42rem .85rem; border-radius: 7px;
+      border: 1px solid var(--line-2); background: var(--card); color: var(--ink);
+      transition: background .12s, border-color .12s, transform .06s;
+    }
+    button:hover { border-color: var(--ink-3); }
+    button:active { transform: translateY(1px); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary:hover { filter: brightness(1.08); }
+    button.small { padding: .26rem .6rem; font-size: .82rem; }
     form.inline { display: inline; }
-    .bar { margin-bottom: 1rem; display: flex; gap: .5rem; align-items: center; }
-    fieldset { border: 1px solid rgba(128,128,128,.35); border-radius: 6px;
-               padding: .9rem 1rem 1rem; margin: 0 0 1.25rem; }
-    legend { font-size: .78rem; font-weight: 600; opacity: .65; text-transform: uppercase;
-             padding: 0 .35rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
-            gap: .7rem 1rem; }
-    label { display: block; font-size: .75rem; opacity: .75; margin-bottom: .2rem; }
-    input[type=number] { font: inherit; width: 100%; padding: .3rem .4rem; box-sizing: border-box;
-                         border: 1px solid rgba(128,128,128,.5); border-radius: 4px;
-                         background: transparent; color: inherit; }
-    .hint { font-size: .72rem; opacity: .55; margin-top: .15rem; }
-    .actions { margin-top: .9rem; display: flex; gap: .5rem; align-items: center; }
-    .flash { background: rgba(40,160,70,.16); border-left: 3px solid rgb(40,160,70);
-             padding: .5rem .8rem; margin: 0 0 1rem; font-size: .85rem; }
-    .err { background: rgba(200,50,50,.14); border-left: 3px solid rgb(200,50,50);
-           padding: .5rem .8rem; margin: 0 0 1rem; font-size: .85rem; }
-    .err ul { margin: .2rem 0 0; padding-left: 1.1rem; }
+
+    /* ---- listings ---- */
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      font-size: .72rem; font-weight: 650; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--ink-3); text-align: left;
+      padding: .5rem 1.1rem; border-bottom: 1px solid var(--line);
+    }
+    tbody td { padding: .7rem 1.1rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: var(--bg); }
+    .num { color: var(--ink-3); font-size: .8rem; font-variant-numeric: tabular-nums; }
+    .price { font-weight: 640; font-size: .97rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .beds { font-size: .84rem; color: var(--ink-2); white-space: nowrap; }
+    .walk { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .walk b { font-weight: 600; }
+    .walk .m { color: var(--ink-3); font-size: .76rem; }
+    .bar {
+      height: 3px; border-radius: 2px; background: var(--line);
+      margin-top: .3rem; overflow: hidden; width: 4.2rem;
+    }
+    .bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+    .listing { display: block; font-weight: 520; }
+    .listing-title {
+      display: block; max-width: 27rem; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .meta { font-size: .74rem; color: var(--ink-3); margin-top: .1rem; }
+    .tag {
+      display: inline-block; font-size: .71rem; font-weight: 560;
+      padding: .1rem .4rem; border-radius: 4px;
+      background: var(--bg); border: 1px solid var(--line); color: var(--ink-2);
+    }
+    .tag.ok { background: var(--good-soft); border-color: var(--good); color: var(--good); }
+    .empty { padding: 2.5rem 1.1rem; text-align: center; color: var(--ink-3); font-size: .9rem; }
+    .foot {
+      padding: .65rem 1.1rem; border-top: 1px solid var(--line);
+      font-size: .78rem; color: var(--ink-3);
+    }
+    .foot b { color: var(--ink-2); font-weight: 600; }
+
+    @media (max-width: 640px) {
+      body { padding: 1.25rem .75rem 3rem; }
+      .hide-sm { display: none; }
+      .listing-title { max-width: 12rem; }
+    }
   </style>
 </head>
 <body>
-  <h1>Rental watcher</h1>
-  <div class="sub">
-    {{ settings.min_bedrooms }}&ndash;{{ settings.max_bedrooms }} bed &middot;
-    within {{ settings.radius_m }} m (~{{ walk(settings.radius_m) }} min walk) of
-    <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}">
-      the office</a> &middot;
-    {% if settings.max_price %}${{ settings.min_price }}&ndash;${{ settings.max_price }}
-    {% else %}${{ settings.min_price }}+ {% endif %} &middot;
-    checking every {{ config.POLL_MINUTES }} min
-  </div>
+<div class="wrap">
 
-  {% if saved %}<p class="flash">{{ saved }}</p>{% endif %}
-  {% if errors %}
-    <div class="err"><strong>Nothing was saved:</strong>
-      <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  <header>
+    <h1><span class="dot"></span> Rental watcher</h1>
+    <div class="pills">
+      <span class="pill">{{ settings.min_bedrooms }}&ndash;{{ settings.max_bedrooms }} bed</span>
+      <span class="pill">
+        <strong>{{ settings.radius_m }} m</strong> &middot; ~{{ walk(settings.radius_m) }} min walk of
+        <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}"
+           target="_blank" rel="noopener">the office</a>
+      </span>
+      <span class="pill">
+        {% if settings.max_price %}<strong>${{ "{:,}".format(settings.min_price) }}&ndash;${{ "{:,}".format(settings.max_price) }}</strong>
+        {% else %}<strong>${{ "{:,}".format(settings.min_price) }}+</strong> no cap{% endif %}
+      </span>
+      <span class="pill">every <strong>{{ config.POLL_MINUTES }} min</strong></span>
+      <span class="pill">via <strong>{{ config.NOTIFY_CHANNEL }}</strong></span>
+      {% if config.DRY_RUN %}<span class="pill">dry run &middot; <strong>nothing is sent</strong></span>{% endif %}
     </div>
+  </header>
+
+  {% if saved %}
+    <div class="alert good"><span class="ico">&check;</span><div>{{ saved }}</div></div>
+  {% endif %}
+  {% if errors %}
+    <div class="alert bad"><span class="ico">!</span><div>
+      <b>Nothing was saved.</b>
+      <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div></div>
+  {% endif %}
+
+  {% set blockers = [] %}
+  {% if config.NOTIFY_EMAIL and not email_ready %}{% set _ = blockers.append(1) %}{% endif %}
+  {% if config.NOTIFY_SMS and not twilio %}{% set _ = blockers.append(1) %}{% endif %}
+  {% if placeholders %}{% set _ = blockers.append(1) %}{% endif %}
+  {% if config.NOTIFY_EMAIL and email_ready and not inbox_ready %}{% set _ = blockers.append(1) %}{% endif %}
+  {% if not playwright %}{% set _ = blockers.append(1) %}{% endif %}
+
+  {% if blockers %}
+  <section class="card">
+    <div class="card-head"><h2 class="card-title">Setup &middot; {{ blockers|length }} to look at</h2></div>
+    <div class="card-body">
+
+      {% if config.NOTIFY_EMAIL and not email_ready %}
+        <div class="notice"><span class="badge blocked"></span><div class="notice-text">
+          <b>Email isn't configured.</b> Alerts only reach the server log. Set
+          <code>SMTP_USER</code> and <code>SMTP_PASS</code> (a Gmail App Password) in <code>.env</code>.
+        </div></div>
+      {% endif %}
+
+      {% if config.NOTIFY_SMS and not twilio %}
+        <div class="notice"><span class="badge blocked"></span><div class="notice-text">
+          <b>Twilio isn't configured.</b> Texts only reach the server log, and note a
+          trial account can't send listing alerts at all.
+        </div></div>
+      {% endif %}
+
+      {% if placeholders %}
+        <div class="notice"><span class="badge blocked"></span><div class="notice-text">
+          <b>Your reply message isn't finished.</b> It still contains
+          {% for p in placeholders %}<code>{{ p }}</code>{% if not loop.last %} {% endif %}{% endfor %}.
+          Sending is blocked until you replace those in <code>.env</code>, so nothing
+          half-written reaches a landlord.
+        </div></div>
+      {% endif %}
+
+      {% if config.NOTIFY_EMAIL and email_ready and not inbox_ready %}
+        <div class="notice"><span class="badge heads-up"></span><div class="notice-text">
+          <b>Inbox watching is off.</b> Alerts will arrive, but replying to them won't
+          do anything. Set <code>WATCH_INBOX=1</code> in <code>.env</code>.
+        </div></div>
+      {% endif %}
+
+      {% if not playwright %}
+        <div class="notice"><span class="badge heads-up"></span><div class="notice-text">
+          <b>Assisted reply is unavailable.</b> Needs
+          <code>pip install playwright &amp;&amp; playwright install chromium</code>.
+          Until then replying is fully manual, though alerts still link to each post.
+        </div></div>
+      {% endif %}
+
+    </div>
+  </section>
   {% endif %}
 
   <form method="post" action="/settings">
-    <fieldset>
-      <legend>Search filters</legend>
-      <div class="grid">
-        {% for name, (caster, low, high, label) in spec.items() %}
+    <section class="card">
+      <div class="card-head">
+        <h2 class="card-title">Search filters</h2>
+        <span class="hint">Applies from the next check</span>
+      </div>
+      <div class="card-body">
+        {# Office coordinates are split out so they don't leave an orphan in the
+           main grid, and because you set them once and then forget them. #}
+        {% set main = ['radius_m', 'min_price', 'max_price', 'min_bedrooms', 'max_bedrooms'] %}
+        {% macro field(name) %}
+          {% set caster, low, high, label = spec[name] %}
           <div>
             <label for="{{ name }}">{{ label }}</label>
             <input type="number" id="{{ name }}" name="{{ name }}"
-                   value="{{ settings[name] }}"
-                   min="{{ low }}" max="{{ high }}"
+                   value="{{ settings[name] }}" min="{{ low }}" max="{{ high }}"
                    step="{{ '0.0001' if caster.__name__ == 'float' else '1' }}">
             {% if settings[name] != defaults[name] %}
-              <div class="hint">.env says {{ defaults[name] }}</div>
+              <div class="hint changed">.env says {{ defaults[name] }}</div>
             {% endif %}
           </div>
-        {% endfor %}
+        {% endmacro %}
+
+        <div class="grid five">
+          {% for name in main %}{{ field(name) }}{% endfor %}
+        </div>
+
+        <details class="advanced">
+          <summary>Office location</summary>
+          <div class="grid two">
+            {{ field('office_lat') }}{{ field('office_lon') }}
+          </div>
+          <div class="hint">
+            Right-click your building in Google Maps and copy the coordinates. The
+            default is a street-level estimate, not a rooftop pin.
+          </div>
+        </details>
+
+        <div class="row">
+          <button class="primary" type="submit">Save filters</button>
+          <button type="submit" name="reset" value="1">Reset to .env</button>
+        </div>
       </div>
-      <div class="actions">
-        <button type="submit">Save filters</button>
-        <button type="submit" name="reset" value="1">Reset to .env</button>
-        <span class="hint">Applies from the next check onward.</span>
-      </div>
-    </fieldset>
+    </section>
   </form>
 
-  {% if config.NOTIFY_EMAIL and not email_ready %}
-    <p class="warn"><strong>Email not configured.</strong>
-    Alerts are only written to the server log. Set <code>SMTP_USER</code> and
-    <code>SMTP_PASS</code> (a Gmail App Password) in <code>.env</code>.</p>
-  {% endif %}
-  {% if config.NOTIFY_SMS and not twilio %}
-    <p class="warn"><strong>Twilio not configured.</strong>
-    Texts are only written to the server log. Fill in the Twilio values in
-    <code>.env</code>, and note a trial account can't send listing alerts.</p>
-  {% endif %}
-  {% if config.NOTIFY_EMAIL and email_ready and not inbox_ready %}
-    <p class="warn"><strong>Inbox watching is off.</strong>
-    Alerts will arrive, but replying to them won't do anything. Set
-    <code>WATCH_INBOX=1</code> and <code>IMAP_HOST</code> in <code>.env</code>.</p>
-  {% endif %}
-  {% if placeholders %}
-    <p class="warn"><strong>Your reply message isn't finished.</strong>
-    It still contains {{ placeholders|join(", ") }} &mdash; unattended sending is
-    blocked until you replace those in <code>.env</code>, so nothing half-written
-    reaches a landlord.</p>
-  {% endif %}
+  <section class="card">
+    <div class="card-head">
+      <h2 class="card-title">
+        Listings{% if listings %} &middot; {{ listings|length }}{% endif %}
+      </h2>
+      <form class="inline" method="post" action="/poll">
+        <button class="small" type="submit">Check now</button>
+      </form>
+    </div>
 
-  {% if playwright %}
-    <p class="warn"><strong>Replies are assisted, not automatic.</strong>
-    Craigslist hides the reply address behind an hCaptcha challenge, so
-    <em>Send</em> tries unattended first and then opens a browser window with your
-    message pre-filled for you to finish. Captchas tend to ease off on a profile
-    that has passed before, so unattended sends may start working over time.</p>
-  {% else %}
-    <p class="warn"><strong>Assisted reply unavailable.</strong>
-    Needs Playwright: <code>pip install playwright &amp;&amp; playwright install chromium</code>.
-    Until then, replying is fully manual &mdash; the alert text still links to each post.</p>
-  {% endif %}
-
-  <div class="bar">
-    <form class="inline" method="post" action="/poll"><button>Check now</button></form>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>#</th><th>Price</th><th>Bed</th><th class="n">Walk</th>
-        <th>Listing</th><th>Found</th><th>Reply</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for l in listings %}
-      <tr>
-        <td class="n">{{ l.num }}</td>
-        <td class="n">{{ "${:,}".format(l.price) if l.price else "—" }}</td>
-        <td>{{ "studio" if l.bedrooms == 0 else (l.bedrooms|string + "br" if l.bedrooms is not none else "—") }}</td>
-        <td class="n">{{ walk(l.distance_m) }} min<br><span class="tag">{{ l.distance_m|int }} m</span></td>
-        <td class="title"><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a></td>
-        <td>{{ l.seen_at }}{% if not l.notified %} <span class="tag">not alerted</span>{% endif %}</td>
-        <td>
-          {% if l.replied_at %}
-            <span class="tag ok" title="{{ l.reply_note }}">replied</span>
-          {% else %}
-            <form class="inline" method="post" action="/reply/{{ l.num }}"><button>Send</button></form>
-          {% endif %}
-        </td>
-      </tr>
+    {% if listings %}
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Price</th><th>Bed</th><th>Walk</th>
+          <th>Listing</th><th class="hide-sm">Found</th><th>Reply</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for l in listings %}
+        <tr>
+          <td class="num">{{ l.num }}</td>
+          <td class="price">{{ "${:,}".format(l.price) if l.price else "&mdash;"|safe }}</td>
+          <td class="beds">
+            {{ "studio" if l.bedrooms == 0
+               else (l.bedrooms|string + " bed" if l.bedrooms is not none else "&mdash;"|safe) }}
+          </td>
+          <td class="walk">
+            <b>{{ walk(l.distance_m) }} min</b>
+            <span class="m">{{ l.distance_m|int }} m</span>
+            <div class="bar">
+              <span style="width: {{ [(l.distance_m / settings.radius_m * 100), 100]|min|round|int }}%"></span>
+            </div>
+          </td>
+          <td>
+            <a class="listing" href="{{ l.url }}" target="_blank" rel="noopener">
+              <span class="listing-title">{{ l.title }}</span>
+            </a>
+          </td>
+          {# Tag the ones that DID alert. Flagging the others instead would put a
+             badge on every row after a first run, which carries no information. #}
+          <td class="hide-sm meta">
+            {{ l.seen_at[5:16] }}{% if l.notified %} <span class="tag">alerted</span>{% endif %}
+          </td>
+          <td>
+            {% if l.replied_at %}
+              <span class="tag ok" title="{{ l.reply_note }}">replied</span>
+            {% else %}
+              <form class="inline" method="post" action="/reply/{{ l.num }}">
+                <button class="small" type="submit">Send</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
     {% else %}
-      <tr><td colspan="7">Nothing yet. Hit &ldquo;Check now&rdquo;.</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
+      <div class="empty">
+        Nothing recorded yet. Hit <b>Check now</b> to sweep Craigslist.
+      </div>
+    {% endif %}
+
+    {% if playwright %}
+      <div class="foot">
+        <b>Send</b> tries unattended first, then opens a browser window with your message
+        pre-filled &mdash; Craigslist guards the reply address with a captcha, so the last
+        step is yours.
+      </div>
+    {% endif %}
+  </section>
+
+</div>
 </body>
 </html>
