@@ -1,7 +1,10 @@
+import os
 import sqlite3
 import threading
 
-DB_PATH = "listings.db"
+# Overridable so tests and experiments don't scribble on the real database - the
+# settings you save from the dashboard live in here too, not just listings.
+DB_PATH = os.getenv("DB_PATH", "listings.db")
 
 _lock = threading.Lock()
 _conn = sqlite3.connect(DB_PATH, check_same_thread=False)

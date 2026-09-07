@@ -50,7 +50,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env    # then fill it in
 ```
 
-Check the office coordinates before trusting the distance filter — OpenStreetMap
+Check the office coordinates before trusting the walking-distance filter — OpenStreetMap
 has no rooftop pin for 402 Dunsmuir, so the default is a street-level estimate:
 
 ```bash
@@ -161,10 +161,13 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
   this a widened filter would dump a hundred messages at once.
 - **Room shares are filtered out.** Craigslist counts a shared room as "1br", so
   titles matching `EXCLUDE_KEYWORDS` are dropped.
-- **Distance is straight-line.** The default 700 m is tuned so it corresponds to
-  roughly a 10-minute walk once you account for routing around blocks; a literal
-  10 min of walking is ~830 m of pavement but only ~700 m of crow-flies in
-  downtown Vancouver's grid. Set `RADIUS_M=830` if you'd rather cast wider.
+- **Distance is set in walking minutes**, not metres, because that's the number
+  you actually care about. The radius is derived: Craigslist is queried by
+  straight-line distance, and a real pavement route is roughly 25% longer than
+  that in downtown Vancouver's grid, so 10 minutes becomes a ~667 m radius.
+  Change `WALK_MINUTES` in `.env` or use the dashboard. An older `.env` setting
+  `RADIUS_M` in metres is still honoured, and a radius saved by a previous version
+  is migrated to its equivalent in minutes on first run.
 
 ## Layout
 

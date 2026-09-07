@@ -121,10 +121,11 @@ def search():
     Filters come from settings (dashboard-adjustable) rather than config, so they
     are read fresh on every poll.
     """
-    import settings  # deferred: settings imports db, which shouldn't load on import
+    import settings  # deferred: settings imports this module, so avoid a cycle
 
     s = settings.all_settings()
-    radius_m, office_lat, office_lon = s["radius_m"], s["office_lat"], s["office_lon"]
+    radius_m = settings.radius_m()
+    office_lat, office_lon = s["office_lat"], s["office_lon"]
 
     params = {
         "areaId": config.CL_AREA_ID,
@@ -175,14 +176,26 @@ def search():
         out.append(item)
 
     log.info(
-        "craigslist: %d returned, %d within %dm (%d no coords, %d excluded by keyword)",
-        len(items), len(out), radius_m, skipped_nogeo, skipped_kw,
+        "craigslist: %d returned, %d within %d min walk / %dm (%d no coords, "
+        "%d excluded by keyword)",
+        len(items), len(out), walk_minutes(radius_m), radius_m, skipped_nogeo, skipped_kw,
     )
     # Left in the API's sort=date order (newest first) so callers can prioritise
     # fresh listings; sort by distance at display time instead.
     return out
 
 
+# Walking pace, and how much longer a real pavement route is than a straight line.
+# 1.25 suits downtown Vancouver's grid; a tangle of cul-de-sacs would be higher.
+WALK_SPEED_M_PER_MIN = 5000 / 60
+WALK_DETOUR = 1.25
+
+
 def walk_minutes(distance_m):
-    """Rough walking time: pavement route ~1.25x crow-flies, at 5 km/h."""
-    return max(1, round(distance_m * 1.25 / (5000 / 60)))
+    """Straight-line metres -> roughly how long that is to walk."""
+    return max(1, round(distance_m * WALK_DETOUR / WALK_SPEED_M_PER_MIN))
+
+
+def metres_for_walk(minutes):
+    """Inverse of walk_minutes: the search radius that matches a walking time."""
+    return round(minutes * WALK_SPEED_M_PER_MIN / WALK_DETOUR)

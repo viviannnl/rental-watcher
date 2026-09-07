@@ -224,7 +224,7 @@
     <div class="pills">
       <span class="pill">{{ settings.min_bedrooms }}&ndash;{{ settings.max_bedrooms }} bed</span>
       <span class="pill">
-        <strong>{{ settings.radius_m }} m</strong> &middot; ~{{ walk(settings.radius_m) }} min walk of
+        within <strong>{{ settings.walk_minutes }} min walk</strong> of
         <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}"
            target="_blank" rel="noopener">the office</a>
       </span>
@@ -311,7 +311,7 @@
       <div class="card-body">
         {# Office coordinates are split out so they don't leave an orphan in the
            main grid, and because you set them once and then forget them. #}
-        {% set main = ['radius_m', 'min_price', 'max_price', 'min_bedrooms', 'max_bedrooms'] %}
+        {% set main = ['walk_minutes', 'min_price', 'max_price', 'min_bedrooms', 'max_bedrooms'] %}
         {% macro field(name) %}
           {% set caster, low, high, label = spec[name] %}
           <div>
@@ -379,7 +379,7 @@
             <b>{{ walk(l.distance_m) }} min</b>
             <span class="m">{{ l.distance_m|int }} m</span>
             <div class="bar">
-              <span style="width: {{ [(l.distance_m / settings.radius_m * 100), 100]|min|round|int }}%"></span>
+              <span style="width: {{ [(l.distance_m / radius_m * 100), 100]|min|round|int }}%"></span>
             </div>
           </td>
           <td>

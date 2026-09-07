@@ -19,10 +19,12 @@ def _i(name, default):
 OFFICE_LAT = _f("OFFICE_LAT", "49.2806")
 OFFICE_LON = _f("OFFICE_LON", "-123.1116")
 
-# Straight-line metres. A 10 min walk is ~830 m of pavement, but real routes detour
-# around blocks; in downtown Vancouver's grid the ratio is ~1.2-1.3, so ~700 m
-# crow-flies is a closer match to "10 min walk" than 830 m.
+# How far you're willing to walk, in minutes. This is the number you actually care
+# about; the search radius in metres is derived from it (see craigslist.py, which
+# accounts for real routes being longer than straight lines).
+# RADIUS_M is still read for older .env files that set metres directly.
 RADIUS_M = _f("RADIUS_M", "700")
+WALK_MINUTES = _i("WALK_MINUTES", 0) or max(1, round(RADIUS_M * 1.25 / (5000 / 60)))
 
 MIN_BEDROOMS = _i("MIN_BEDROOMS", 0)  # 0 == studio
 MAX_BEDROOMS = _i("MAX_BEDROOMS", 1)

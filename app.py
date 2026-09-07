@@ -233,6 +233,7 @@ def _render(errors=(), saved=None):
         settings=settings.all_settings(),
         spec=settings.SPEC,
         defaults=settings.DEFAULTS,
+        radius_m=settings.radius_m(),
         errors=list(errors),
         saved=saved,
         walk=craigslist.walk_minutes,

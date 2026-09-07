@@ -11,6 +11,7 @@ can't disagree about what's allowed.
 import logging
 
 import config
+import craigslist
 import db
 
 log = logging.getLogger(__name__)
@@ -18,9 +19,9 @@ log = logging.getLogger(__name__)
 META_PREFIX = "setting:"
 
 # name -> (caster, low, high, label). Bounds are sanity rails, not preferences:
-# a 50 km radius or a negative price is a mistake, not a choice.
+# an hour's walk or a negative price is a mistake, not a choice.
 SPEC = {
-    "radius_m": (int, 100, 5000, "Distance from office (m)"),
+    "walk_minutes": (int, 1, 60, "Max walk from office (min)"),
     "min_price": (int, 0, 100000, "Min price ($)"),
     "max_price": (int, 0, 100000, "Max price ($, 0 = no cap)"),
     "min_bedrooms": (int, 0, 5, "Min bedrooms (0 = studio)"),
@@ -30,7 +31,7 @@ SPEC = {
 }
 
 DEFAULTS = {
-    "radius_m": int(config.RADIUS_M),
+    "walk_minutes": config.WALK_MINUTES,
     "min_price": config.MIN_PRICE,
     "max_price": config.MAX_PRICE,
     "min_bedrooms": config.MIN_BEDROOMS,
@@ -38,6 +39,35 @@ DEFAULTS = {
     "office_lat": config.OFFICE_LAT,
     "office_lon": config.OFFICE_LON,
 }
+
+
+def _migrate_radius():
+    """Carry a saved radius in metres over to the equivalent walking time.
+
+    The filter used to be expressed in metres. Without this, switching units would
+    silently discard whatever radius you had chosen and snap back to the .env value.
+    """
+    legacy = db.get_meta(META_PREFIX + "radius_m")
+    if legacy is None:
+        return
+    if db.get_meta(META_PREFIX + "walk_minutes") is None:
+        try:
+            minutes = craigslist.walk_minutes(float(legacy))
+        except (TypeError, ValueError):
+            log.warning("could not migrate saved radius %r", legacy)
+            minutes = None
+        if minutes:
+            db.set_meta(META_PREFIX + "walk_minutes", minutes)
+            log.info("migrated saved radius of %sm to a %s min walk", legacy, minutes)
+    db.del_meta(META_PREFIX + "radius_m")
+
+
+_migrate_radius()
+
+
+def radius_m():
+    """The search radius in metres implied by the chosen walking time."""
+    return craigslist.metres_for_walk(get("walk_minutes"))
 
 
 def get(name):
