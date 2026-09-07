@@ -9,6 +9,7 @@ from flask import Flask, request, render_template, abort
 import config
 import craigslist
 import db
+import enrich
 import inbox
 import mailer
 import notifier
@@ -25,6 +26,23 @@ app = Flask(__name__)
 # Cap how many alerts one poll can fire. Without this, a first run against a
 # tweaked filter (wider radius, higher price) would dump a hundred messages at once.
 MAX_ALERTS_PER_POLL = 5
+
+
+def add_building_info(num, listing):
+    """Attach address and year built, and remember them. Never fatal.
+
+    Only called for listings we're about to alert on, which the per-poll cap keeps
+    to a handful, since each one costs a page fetch plus maybe an open-data query.
+    """
+    if not config.LOOKUP_YEAR_BUILT:
+        return
+    try:
+        year, source, address = enrich.year_built(listing)
+    except Exception:
+        log.exception("year-built lookup failed for #%s", num)
+        return
+    listing["year_built"], listing["year_source"], listing["address"] = year, source, address
+    db.save_building_info(num, address, year, source)
 
 
 def alert(num, listing):
@@ -74,6 +92,7 @@ def poll_once():
         if num is None or not should_alert:
             continue
         try:
+            add_building_info(num, item)
             alert(num, item)
             alerted += 1
         except Exception:
@@ -298,6 +317,23 @@ def manual_reply(num):
     if not listing:
         abort(404)
     return _render(saved=act_on_listing(listing))
+
+
+@app.post("/building/<int:num>")
+def building(num):
+    """Look up one listing's age on demand, for rows the poll didn't cover."""
+    listing = db.get(num)
+    if not listing:
+        abort(404)
+    add_building_info(num, dict(listing))
+    fresh = db.get(num)
+    if fresh["year_built"]:
+        note = f"#{num} was built in {fresh['year_built']} (per {fresh['year_source']})."
+    elif fresh["address"]:
+        note = f"#{num}: no record found for {fresh['address']}."
+    else:
+        note = f"#{num}: the posting doesn't give a street address, so there's nothing to look up."
+    return _render(saved=note)
 
 
 @app.post("/assist/<int:num>")

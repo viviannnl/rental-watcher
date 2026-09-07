@@ -209,6 +209,15 @@
       background: var(--bg); border: 1px solid var(--line); color: var(--ink-2);
     }
     .tag.ok { background: var(--good-soft); border-color: var(--good); color: var(--good); }
+    .built { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: .87rem; }
+    .built b { font-weight: 600; }
+    .muted { color: var(--ink-3); font-size: .8rem; }
+    button.link {
+      background: none; border: 0; padding: 0; font-size: .78rem;
+      color: var(--accent); cursor: pointer; text-decoration: underline;
+      text-decoration-style: dotted; text-underline-offset: 2px;
+    }
+    button.link:hover { text-decoration-style: solid; }
     .empty { padding: 2.5rem 1.1rem; text-align: center; color: var(--ink-3); font-size: .9rem; }
     .foot {
       padding: .65rem 1.1rem; border-top: 1px solid var(--line);
@@ -377,7 +386,7 @@
     <table>
       <thead>
         <tr>
-          <th>#</th><th>Price</th><th>Bed</th><th>Walk</th>
+          <th>#</th><th>Price</th><th>Bed</th><th>Walk</th><th>Built</th>
           <th>Listing</th><th class="hide-sm">Found</th><th>Reply</th>
         </tr>
       </thead>
@@ -397,10 +406,22 @@
               <span style="width: {{ [(l.distance_m / radius_m * 100), 100]|min|round|int }}%"></span>
             </div>
           </td>
+          <td class="built">
+            {% if l.year_built %}
+              <b title="Source: {{ l.year_source }}">{{ l.year_built }}</b>
+            {% elif l.year_source is none and l.address %}
+              <span class="muted" title="No record for {{ l.address }}">none</span>
+            {% else %}
+              <form class="inline" method="post" action="/building/{{ l.num }}">
+                <button class="link" type="submit" title="Fetch the posting and look up its age">look up</button>
+              </form>
+            {% endif %}
+          </td>
           <td>
             <a class="listing" href="{{ l.url }}" target="_blank" rel="noopener">
               <span class="listing-title">{{ l.title }}</span>
             </a>
+            {% if l.address %}<div class="meta">{{ l.address }}</div>{% endif %}
           </td>
           {# Tag the ones that DID alert. Flagging the others instead would put a
              badge on every row after a first run, which carries no information. #}

@@ -139,6 +139,37 @@ Two things worth knowing:
 - **Moving the office recomputes every stored distance**, so old rows don't keep
   showing how far they were from the previous location.
 
+## How old is the building?
+
+Craigslist has no year-built field, so this uses two sources in order:
+
+1. **The posting text**, when a landlord happens to write "built in 1998".
+2. **City of Vancouver open data** — the `property-tax-report` dataset carries
+   `year_built` for every assessed property, looked up by the street address
+   Craigslist exposes in its `mapaddress` element.
+
+Expect this to resolve for **roughly half** of listings. The limit is Craigslist,
+not the lookup: many posts give a cross-street ("Beatty near Dunsmuir") or no
+address at all, and without a civic number there is nothing to query. Rows the
+poll didn't cover get a **look up** link on the dashboard to fetch one on demand.
+
+What it deliberately does *not* do is reverse-geocode the listing's coordinates to
+guess an address. Craigslist rounds coordinates to anonymise them, so that would
+confidently report the wrong building's age — worse than admitting it's unknown.
+
+Set `LOOKUP_YEAR_BUILT=0` to skip it. It costs one page fetch per alerted listing,
+so at most a handful per poll, and results are cached per address.
+
+### Dataset quirks
+
+Worth knowing if this ever breaks, since none of it matches what the field names
+suggest:
+
+- `to_civic_number` is the street number. `from_civic_number` is the *unit* for
+  strata properties, or null — the pair is not a range.
+- Street names put the direction last: `GEORGIA ST W`, not `W GEORGIA ST`.
+- A strata building returns one row per unit, so the most common year wins.
+
 ## The reply message
 
 `REPLY_MESSAGE` in `.env` is the intro sent to a listing. Two things about it:
@@ -180,6 +211,7 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
 | `replier.py` | Assisted and unattended reply to a listing |
 | `app.py` | Flask routes, background poller, inbox watcher |
 | `settings.py` | Dashboard-adjustable filters, validated and persisted |
+| `enrich.py` | Year built, from the posting or city open data |
 | `db.py` | SQLite storage and dedupe |
 
 ## Fair warning

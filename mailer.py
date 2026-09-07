@@ -57,10 +57,22 @@ def alert_subject(num, listing):
 
 def alert_body(num, listing):
     metres = round(listing["distance_m"])
+    lines = [
+        f"  Price:    {listing['price_display']}",
+        f"  Distance: {metres} m from the office (~{walk_minutes(metres)} min walk)",
+    ]
+    if listing.get("address"):
+        lines.append(f"  Address:  {listing['address']}")
+    if listing.get("year_built"):
+        age = f"{listing['year_built']}"
+        if listing.get("year_source"):
+            age += f" (per {listing['year_source']})"
+        lines.append(f"  Built:    {age}")
+    body = "\n".join(lines)
+
     return (
         f"{listing['title']}\n\n"
-        f"  Price:    {listing['price_display']}\n"
-        f"  Distance: {metres} m from the office (~{walk_minutes(metres)} min walk)\n\n"
+        f"{body}\n\n"
         f"{listing['url']}\n\n"
         f"---\n"
         f"Reply to this email to send your intro message to the poster.\n"

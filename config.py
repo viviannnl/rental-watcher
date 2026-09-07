@@ -109,4 +109,9 @@ def reply_body():
     return REPLY_TEMPLATE.replace("{availability}", AVAILABILITY)
 
 
+# Look up how old the building is. Costs one page fetch per alerted listing plus
+# a City of Vancouver open-data query, so it is only done for listings you're
+# actually told about, never the whole search.
+LOOKUP_YEAR_BUILT = os.getenv("LOOKUP_YEAR_BUILT", "1") == "1"
+
 DRY_RUN = os.getenv("DRY_RUN", "0") == "1"

@@ -33,6 +33,18 @@ _conn.executescript("""
 _conn.commit()
 
 
+def _add_missing_columns():
+    """Bring an older database up to date without discarding what's in it."""
+    have = {r["name"] for r in _conn.execute("PRAGMA table_info(listings)")}
+    for name, decl in (("address", "TEXT"), ("year_built", "INTEGER"), ("year_source", "TEXT")):
+        if name not in have:
+            _conn.execute(f"ALTER TABLE listings ADD COLUMN {name} {decl}")
+    _conn.commit()
+
+
+_add_missing_columns()
+
+
 def _q(sql, args=(), fetch=None):
     with _lock:
         cur = _conn.execute(sql, args)
@@ -84,6 +96,13 @@ def latest_notified():
 def recent(limit=200):
     return _q(
         "SELECT * FROM listings ORDER BY num DESC LIMIT ?", (limit,), fetch="all"
+    )
+
+
+def save_building_info(num, address, year_built, year_source):
+    _q(
+        "UPDATE listings SET address = ?, year_built = ?, year_source = ? WHERE num = ?",
+        (address, year_built, year_source, num),
     )
 
 
