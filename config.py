@@ -49,6 +49,20 @@ CL_AREA_ID = _i("CL_AREA_ID", 16)  # vancouver, BC
 CL_SUBAREA_ID = _i("CL_SUBAREA_ID", 1)  # city of vancouver
 CL_CATEGORY = os.getenv("CL_CATEGORY", "apa")
 
+# The area one crawl covers, independent of any one person's commute. Craigslist
+# returns at most 360 postings per request with no way to page further, and every
+# radius saturates that, so a wider crawl doesn't see more places - it sees the same
+# 360 spread over more ground, reaching less far back in time. Measured within a
+# 1 km circle the crawl sees 360 of 471 current postings; at 3 km, 360 of 1751. So
+# keep this just wide enough to contain every saved search: 2 km covers a 30 minute
+# walk, which is the widest anyone here is likely to want.
+#
+# Centred on the office by default. With watchers spread across the city this wants
+# to become the centroid of their searches, or several crawls.
+CRAWL_LAT = _f("CRAWL_LAT", OFFICE_LAT)
+CRAWL_LON = _f("CRAWL_LON", OFFICE_LON)
+CRAWL_RADIUS_KM = _i("CRAWL_RADIUS_KM", 2)
+
 # --- Twilio ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 # Needed regardless of whether you use an API key: Twilio signs inbound webhooks

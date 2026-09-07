@@ -3,3 +3,6 @@ requests>=2.31
 beautifulsoup4>=4.12
 twilio>=9.0
 python-dotenv>=1.0
+
+# Tests only; the app runs without it.
+pytest>=8.0

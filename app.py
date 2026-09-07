@@ -72,10 +72,35 @@ def poll_once():
     The very first poll seeds the database silently: everything on Craigslist
     right now is already old news, and alerting on 100 of them would be useless.
     """
-    listings = craigslist.search()
+    s = settings.all_settings()
+
+    # A search wider than the crawl can never be answered fully, and it would fail
+    # quietly: the table would just stop gaining places past the crawl edge.
+    crawl_m = config.CRAWL_RADIUS_KM * 1000
+    if settings.radius_m() > crawl_m:
+        log.warning(
+            "your %d min walk reaches %dm but the crawl only covers %dm - listings "
+            "beyond that are invisible. Raise CRAWL_RADIUS_KM.",
+            s["walk_minutes"], settings.radius_m(), crawl_m,
+        )
+
+    crawled = craigslist.crawl()
+    listings = craigslist.matching(crawled, s, config.EXCLUDE_KEYWORDS)
     seeded = db.get_meta("seeded") == "1"
     known = db.known_ids()
     fresh = [item for item in listings if item["cl_id"] not in known]
+
+    # Craigslist caps a crawl at 360 postings with no way to page back further. If a
+    # whole crawl is both full and entirely unseen, the window turned over between
+    # polls and something in the gap was missed - poll more often or crawl a smaller
+    # area. Only meaningful once seeded, since the first crawl is new by definition.
+    if seeded and len(crawled) >= craigslist.BATCH_SIZE:
+        if all(item["cl_id"] not in known for item in crawled):
+            log.warning(
+                "crawl returned a full %d postings and none were known: listings may "
+                "have been missed. Lower POLL_MINUTES (now %d) or CRAWL_RADIUS_KM (now %d).",
+                craigslist.BATCH_SIZE, config.POLL_MINUTES, config.CRAWL_RADIUS_KM,
+            )
 
     if not seeded:
         for item in fresh:
@@ -84,8 +109,8 @@ def poll_once():
         log.info("first run: seeded %d existing listings without alerting", len(fresh))
         return 0
 
-    # craigslist.search() returns newest first, so when we hit the per-poll cap
-    # the listings we drop are the older ones.
+    # The crawl comes back newest first, so when we hit the per-poll cap the
+    # listings we drop are the older ones.
     alerted = 0
     for item in fresh:
         should_alert = alerted < MAX_ALERTS_PER_POLL
@@ -94,7 +119,11 @@ def poll_once():
             continue
         try:
             add_building_info(num, item)
-            alert(num, item)
+            sent = alert(num, item)
+            # Recorded per search, not per listing. listings.notified still drives
+            # behaviour; this is the row that will replace it, because "already
+            # alerted" can only be true for one person as a column on the listing.
+            db.record_alert(settings.SEARCH_ID, num, ",".join(sent) or None)
             alerted += 1
         except Exception:
             log.exception("failed to alert about listing %s", num)
@@ -264,27 +293,6 @@ SORTS = {
 WINDOW = 500
 
 
-def matches_filters(listing, s, radius):
-    """Whether a stored listing would still be returned by today's filters.
-
-    Rows outlive the filters that found them - widen the radius, look around, narrow
-    it again, and the table keeps the strays. Marking them beats silently dropping
-    them, because a place you already emailed shouldn't vanish.
-    """
-    if listing["distance_m"] is not None and listing["distance_m"] > radius:
-        return False
-    price = listing["price"]
-    if price is not None:
-        if s["min_price"] and price < s["min_price"]:
-            return False
-        if s["max_price"] and price > s["max_price"]:
-            return False
-    beds = listing["bedrooms"]
-    if beds is not None and not s["min_bedrooms"] <= beds <= s["max_bedrooms"]:
-        return False
-    return True
-
-
 def mark_reposts(listings):
     """Flag rows that are the same unit relisted, keeping the newest as canonical.
 
@@ -334,8 +342,13 @@ def _render(errors=(), saved=None):
     # Whole-table window: the counts on the toggle have to be true totals, not
     # "true within the first page", or they mislead more than they inform.
     listings = db.recent(WINDOW)
+    # Rows outlive the filters that found them - widen the radius, look around, narrow
+    # it again, and the table keeps the strays. Marking them beats silently dropping
+    # them, because a place you already emailed shouldn't vanish. Same matcher the
+    # poll uses, so the table can't disagree with the alerts; keywords are left off
+    # because these rows already passed that gate when they were crawled.
     for item in listings:
-        item["matches"] = matches_filters(item, s, radius)
+        item["matches"] = craigslist.match(item, s)[0]
     mark_reposts(listings)
     total = len(listings)
     matching = sum(1 for item in listings if item["matches"] and not item["repost"])

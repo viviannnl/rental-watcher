@@ -29,6 +29,50 @@ _conn.executescript("""
         key   TEXT PRIMARY KEY,
         value TEXT
     );
+
+    -- Everything below is the multi-tenant shape, currently holding exactly one
+    -- user and one search. Nothing here is exposed yet: there is no sign-up, no
+    -- login and no second row. It exists so that adding those later is a feature
+    -- rather than a rewrite, and so the filters stop living in a key-value table
+    -- where a typo'd key silently means "default".
+    CREATE TABLE IF NOT EXISTS users (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        email      TEXT UNIQUE NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    -- One saved search. Deliberately not one-per-user: the whole point of splitting
+    -- crawl from match is that a person can watch two neighbourhoods at different
+    -- prices, and each is a row here.
+    CREATE TABLE IF NOT EXISTS searches (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER NOT NULL REFERENCES users(id),
+        name         TEXT,
+        walk_minutes INTEGER NOT NULL,
+        min_price    INTEGER NOT NULL DEFAULT 0,
+        max_price    INTEGER NOT NULL DEFAULT 0,
+        min_bedrooms INTEGER NOT NULL DEFAULT 0,
+        max_bedrooms INTEGER NOT NULL DEFAULT 1,
+        office_lat   REAL NOT NULL,
+        office_lon   REAL NOT NULL,
+        active       INTEGER NOT NULL DEFAULT 1,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    -- Who has been told about what. listings stays shared and un-owned, because a
+    -- posting is a fact about the world, not about a subscriber - two people watching
+    -- the same block should cost one crawl and one row, not two of each. This is the
+    -- table that makes that safe: it moves "already alerted" off the listing, where
+    -- it can only ever be true for one person, and onto the pair.
+    CREATE TABLE IF NOT EXISTS alerts (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        search_id   INTEGER NOT NULL REFERENCES searches(id),
+        listing_num INTEGER NOT NULL REFERENCES listings(num),
+        channel     TEXT,
+        sent_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        UNIQUE (search_id, listing_num)
+    );
+    CREATE INDEX IF NOT EXISTS alerts_by_search ON alerts (search_id, listing_num);
 """)
 _conn.commit()
 
@@ -146,6 +190,97 @@ def set_meta(key, value):
 
 def del_meta(key):
     _q("DELETE FROM meta WHERE key = ?", (key,))
+
+
+# The filter columns of a search, in the order the dashboard shows them. Kept here
+# so the INSERT and UPDATE below can't drift apart from each other.
+SEARCH_FILTERS = (
+    "walk_minutes", "min_price", "max_price",
+    "min_bedrooms", "max_bedrooms", "office_lat", "office_lon",
+)
+
+
+def ensure_user(email, user_id=None):
+    """Return the id of the user with this email, creating the row if needed.
+
+    user_id forces a specific id, which is only used to pin the existing installation
+    to 1 so that older data and new rows agree about who they belong to.
+    """
+    row = _q("SELECT id FROM users WHERE email = ?", (email,), fetch="one")
+    if row:
+        return row["id"]
+    if user_id is None:
+        return _q("INSERT INTO users (email) VALUES (?)", (email,))
+    return _q("INSERT INTO users (id, email) VALUES (?, ?)", (user_id, email))
+
+
+def get_search(search_id):
+    return _q("SELECT * FROM searches WHERE id = ?", (search_id,), fetch="one")
+
+
+def active_searches():
+    """Every search a crawl should be matched against, cheapest query in the app.
+
+    One row today. The signature is the point: the poll loops over searches instead
+    of assuming there is only ever one.
+    """
+    return _q(
+        "SELECT * FROM searches WHERE active = 1 ORDER BY id", fetch="all"
+    )
+
+
+def create_search(user_id, filters, search_id=None, name=None):
+    """Insert a saved search from a {name: value} dict of filters."""
+    names = ["user_id", "name", *SEARCH_FILTERS]
+    args = [user_id, name, *(filters[name] for name in SEARCH_FILTERS)]
+    if search_id is not None:
+        names.insert(0, "id")
+        args.insert(0, search_id)
+    return _q(
+        f"INSERT INTO searches ({', '.join(names)})"
+        f" VALUES ({', '.join('?' * len(names))})",
+        tuple(args),
+    )
+
+
+def update_search(search_id, filters):
+    """Write only the named filters, leaving the rest of the row alone."""
+    fields = [name for name in filters if name in SEARCH_FILTERS]
+    if not fields:
+        return
+    assignments = ", ".join(f"{name} = ?" for name in fields)
+    _q(
+        f"UPDATE searches SET {assignments} WHERE id = ?",
+        tuple([filters[name] for name in fields] + [search_id]),
+    )
+
+
+def record_alert(search_id, listing_num, channel=None):
+    """Note that this search has been told about this listing.
+
+    Returns False if it already had been. The UNIQUE constraint is doing the real
+    work: it makes a duplicate alert impossible even if two polls overlap, rather
+    than relying on the caller to check first.
+    """
+    with _lock:
+        cur = _conn.execute(
+            "INSERT OR IGNORE INTO alerts (search_id, listing_num, channel)"
+            " VALUES (?, ?, ?)",
+            (search_id, listing_num, channel),
+        )
+        inserted = bool(cur.rowcount)
+        _conn.commit()
+    return inserted
+
+
+def alerted_nums(search_id):
+    """Listing numbers this search has already been told about."""
+    return {
+        r["listing_num"]
+        for r in _q(
+            "SELECT listing_num FROM alerts WHERE search_id = ?", (search_id,), fetch="all"
+        )
+    }
 
 
 def recompute_distances(lat, lon, haversine):

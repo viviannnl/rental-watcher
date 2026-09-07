@@ -201,12 +201,34 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
   Change `WALK_MINUTES` in `.env` or use the dashboard. An older `.env` setting
   `RADIUS_M` in metres is still honoured, and a radius saved by a previous version
   is migrated to its equivalent in minutes on first run.
+- **One crawl serves every saved search.** `crawl()` asks Craigslist for the newest
+  postings in the covered area and carries no personal filters; `match()` then decides
+  which of them suit a given search, from stored rows. So a second saved search costs
+  no extra requests, and the filter rules can be tested without a network.
+- **A crawl sees at most 360 postings** and there is no way to page past them —
+  measured, not assumed. Every radius saturates that limit, so `CRAWL_RADIUS_KM`
+  (default 2) is a real trade: narrower means the same 360 slots cover a smaller area
+  and reach further back in time. Keep it just wide enough to contain your search. The
+  poll warns if your walking radius reaches past it, and if a crawl ever comes back
+  both full and entirely unfamiliar — which would mean listings slipped through the
+  gap between polls.
+
+## Tests
+
+```
+pytest
+```
+
+No network and no database of your own: `tests/conftest.py` points `DB_PATH` at a
+temporary file before `db.py` can connect, and the decoder tests run against real API
+responses captured into the test file. Covers the filter rules, the response decoding
+and the filter-storage migration.
 
 ## Layout
 
 | File | Role |
 |---|---|
-| `craigslist.py` | JSON search endpoint, response decoding, distance filter |
+| `craigslist.py` | The crawl, response decoding, and the filter rules |
 | `mailer.py` | Alert emails to you, and the SMTP send used for intros |
 | `inbox.py` | Reads your replies over IMAP; the email answer to a webhook |
 | `notifier.py` | Twilio outbound texts, if SMS is enabled |
@@ -214,7 +236,8 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
 | `app.py` | Flask routes, background poller, inbox watcher |
 | `settings.py` | Dashboard-adjustable filters, validated and persisted |
 | `enrich.py` | Year built, from the posting or city open data |
-| `db.py` | SQLite storage and dedupe |
+| `db.py` | SQLite storage, dedupe, and the users/searches/alerts tables |
+| `tests/` | The filter rules, response decoding, and the settings migration |
 
 ## Fair warning
 

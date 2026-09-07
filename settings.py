@@ -1,11 +1,18 @@
 """Search filters you can change from the dashboard without a restart.
 
 `.env` supplies the initial value of each one; anything you change in the UI is
-written to the `meta` table and wins from then on, so the two don't fight and your
-tweaks survive a restart. Reset a field to fall back to the `.env` value.
+written to the database and wins from then on, so the two don't fight and your tweaks
+survive a restart. Reset puts the `.env` values back.
 
 Everything is validated here rather than in the template, so the API and the form
 can't disagree about what's allowed.
+
+The filters live in a row of the `searches` table, owned by a row of `users`. There
+is one of each and no way to make a second, so nothing about this is visible in the
+UI - but it means a saved search is a record with typed columns rather than seven
+loose keys in `meta`, where a mistyped key reads as "use the default" and says
+nothing. The rest of the module is unchanged around it: callers still ask for
+get("max_price") and don't know a search id exists.
 """
 
 import logging
@@ -72,26 +79,65 @@ def _migrate_radius():
 
 _migrate_radius()
 
+# The one user and the one search, until there is a way to make more. Pinned to 1 so
+# that rows written before and after this change agree about who owns them.
+USER_ID = 1
+SEARCH_ID = 1
+
+
+def _migrate_to_searches():
+    """Move the filters out of `meta` and into a real row. Runs once, idempotently.
+
+    Any value previously saved from the dashboard is carried over; anything never
+    changed falls back to `.env`, which is what it was already doing. The old
+    `setting:` keys are deleted afterwards so there is exactly one place a filter can
+    come from - leaving both would mean two sources of truth and a coin toss about
+    which one a future reader trusts.
+    """
+    if db.get_search(SEARCH_ID):
+        return
+
+    saved = {}
+    for name, (caster, *_rest) in SPEC.items():
+        stored = db.get_meta(META_PREFIX + name)
+        if stored is None:
+            continue
+        try:
+            saved[name] = caster(stored)
+        except (TypeError, ValueError):
+            log.warning("saved filter %s=%r is unreadable; using the .env value", name, stored)
+
+    db.ensure_user(config.ALERT_EMAIL or "owner@localhost", user_id=USER_ID)
+    db.create_search(USER_ID, {**DEFAULTS, **saved}, search_id=SEARCH_ID, name="My search")
+    for name in SPEC:
+        db.del_meta(META_PREFIX + name)
+    log.info(
+        "moved filters into searches row %d (%s came from the dashboard, the rest "
+        "from .env)", SEARCH_ID, ", ".join(sorted(saved)) or "nothing",
+    )
+
+
+_migrate_to_searches()
+
 
 def radius_m():
     """The search radius in metres implied by the chosen walking time."""
     return craigslist.metres_for_walk(get("walk_minutes"))
 
 
-def get(name):
-    caster = SPEC[name][0]
-    stored = db.get_meta(META_PREFIX + name)
-    if stored is None:
-        return DEFAULTS[name]
-    try:
-        return caster(stored)
-    except (TypeError, ValueError):
-        log.warning("stored setting %s=%r is unreadable; using the .env value", name, stored)
-        return DEFAULTS[name]
-
-
 def all_settings():
-    return {name: get(name) for name in SPEC}
+    """Every filter for the current search, as a dict craigslist.match understands."""
+    row = db.get_search(SEARCH_ID)
+    if row is None:
+        # Only reachable if the row were deleted underneath us. Falling back to .env
+        # beats raising on every page load.
+        log.warning("search %d is missing; using the .env values", SEARCH_ID)
+        return dict(DEFAULTS)
+    return {name: SPEC[name][0](row[name]) for name in SPEC}
+
+
+def get(name):
+    return all_settings()[name]
 
 
 def _validate(name, raw):
@@ -131,14 +177,12 @@ def update(form):
 
     current = all_settings()
     changed = {n: v for n, v in proposed.items() if v != current[n]}
-    for name, value in changed.items():
-        db.set_meta(META_PREFIX + name, value)
     if changed:
+        db.update_search(SEARCH_ID, changed)
         log.info("settings changed: %s", changed)
     return changed, []
 
 
 def reset():
-    """Drop all overrides so the .env values apply again."""
-    for name in SPEC:
-        db.del_meta(META_PREFIX + name)
+    """Put the .env values back."""
+    db.update_search(SEARCH_ID, DEFAULTS)

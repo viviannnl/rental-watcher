@@ -4,3 +4,9 @@ listings.db
 .browser-profile/
 __pycache__/
 *.pyc
+
+# Server log from a detached run
+server.log
+
+# Database backups taken before schema migrations
+listings.db.bak-*
