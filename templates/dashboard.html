@@ -18,20 +18,71 @@
     .title { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tag { font-size: .72rem; padding: .1rem .4rem; border-radius: 3px; background: rgba(128,128,128,.2); }
     .ok { background: rgba(40,160,70,.22); }
-    button { font: inherit; padding: .2rem .55rem; cursor: pointer; }
-    form { display: inline; }
-    .bar { margin-bottom: 1rem; }
+    button { font: inherit; padding: .3rem .7rem; cursor: pointer; }
+    form.inline { display: inline; }
+    .bar { margin-bottom: 1rem; display: flex; gap: .5rem; align-items: center; }
+    fieldset { border: 1px solid rgba(128,128,128,.35); border-radius: 6px;
+               padding: .9rem 1rem 1rem; margin: 0 0 1.25rem; }
+    legend { font-size: .78rem; font-weight: 600; opacity: .65; text-transform: uppercase;
+             padding: 0 .35rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+            gap: .7rem 1rem; }
+    label { display: block; font-size: .75rem; opacity: .75; margin-bottom: .2rem; }
+    input[type=number] { font: inherit; width: 100%; padding: .3rem .4rem; box-sizing: border-box;
+                         border: 1px solid rgba(128,128,128,.5); border-radius: 4px;
+                         background: transparent; color: inherit; }
+    .hint { font-size: .72rem; opacity: .55; margin-top: .15rem; }
+    .actions { margin-top: .9rem; display: flex; gap: .5rem; align-items: center; }
+    .flash { background: rgba(40,160,70,.16); border-left: 3px solid rgb(40,160,70);
+             padding: .5rem .8rem; margin: 0 0 1rem; font-size: .85rem; }
+    .err { background: rgba(200,50,50,.14); border-left: 3px solid rgb(200,50,50);
+           padding: .5rem .8rem; margin: 0 0 1rem; font-size: .85rem; }
+    .err ul { margin: .2rem 0 0; padding-left: 1.1rem; }
   </style>
 </head>
 <body>
   <h1>Rental watcher</h1>
   <div class="sub">
-    {{ config.MIN_BEDROOMS }}&ndash;{{ config.MAX_BEDROOMS }} bed &middot;
-    within {{ config.RADIUS_M|int }} m of
-    <a href="https://www.google.com/maps/search/?api=1&query={{ config.OFFICE_LAT }},{{ config.OFFICE_LON }}">
-      YVR14</a> &middot;
-    polling every {{ config.POLL_MINUTES }} min
+    {{ settings.min_bedrooms }}&ndash;{{ settings.max_bedrooms }} bed &middot;
+    within {{ settings.radius_m }} m (~{{ walk(settings.radius_m) }} min walk) of
+    <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}">
+      the office</a> &middot;
+    {% if settings.max_price %}${{ settings.min_price }}&ndash;${{ settings.max_price }}
+    {% else %}${{ settings.min_price }}+ {% endif %} &middot;
+    checking every {{ config.POLL_MINUTES }} min
   </div>
+
+  {% if saved %}<p class="flash">{{ saved }}</p>{% endif %}
+  {% if errors %}
+    <div class="err"><strong>Nothing was saved:</strong>
+      <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  <form method="post" action="/settings">
+    <fieldset>
+      <legend>Search filters</legend>
+      <div class="grid">
+        {% for name, (caster, low, high, label) in spec.items() %}
+          <div>
+            <label for="{{ name }}">{{ label }}</label>
+            <input type="number" id="{{ name }}" name="{{ name }}"
+                   value="{{ settings[name] }}"
+                   min="{{ low }}" max="{{ high }}"
+                   step="{{ '0.0001' if caster.__name__ == 'float' else '1' }}">
+            {% if settings[name] != defaults[name] %}
+              <div class="hint">.env says {{ defaults[name] }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <button type="submit">Save filters</button>
+        <button type="submit" name="reset" value="1">Reset to .env</button>
+        <span class="hint">Applies from the next check onward.</span>
+      </div>
+    </fieldset>
+  </form>
 
   {% if config.NOTIFY_EMAIL and not email_ready %}
     <p class="warn"><strong>Email not configured.</strong>
@@ -68,7 +119,7 @@
   {% endif %}
 
   <div class="bar">
-    <form method="post" action="/poll"><button>Check now</button></form>
+    <form class="inline" method="post" action="/poll"><button>Check now</button></form>
   </div>
 
   <table>
@@ -86,12 +137,12 @@
         <td>{{ "studio" if l.bedrooms == 0 else (l.bedrooms|string + "br" if l.bedrooms is not none else "—") }}</td>
         <td class="n">{{ walk(l.distance_m) }} min<br><span class="tag">{{ l.distance_m|int }} m</span></td>
         <td class="title"><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a></td>
-        <td>{{ l.seen_at }}{% if not l.notified %} <span class="tag">not texted</span>{% endif %}</td>
+        <td>{{ l.seen_at }}{% if not l.notified %} <span class="tag">not alerted</span>{% endif %}</td>
         <td>
           {% if l.replied_at %}
             <span class="tag ok" title="{{ l.reply_note }}">replied</span>
           {% else %}
-            <form method="post" action="/reply/{{ l.num }}"><button>Send</button></form>
+            <form class="inline" method="post" action="/reply/{{ l.num }}"><button>Send</button></form>
           {% endif %}
         </td>
       </tr>

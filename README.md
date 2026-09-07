@@ -121,6 +121,24 @@ key** with just `Messaging > Messages > Create`. Sending then uses that key rath
 than the Auth Token, so the credential doing the sending can't reconfigure or bill
 your account, and you can revoke it without rotating anything else.
 
+## Adjusting the search
+
+The dashboard has a **Search filters** panel for distance, price range, bedrooms,
+and the office coordinates. Changes are validated, saved to the database, and
+picked up by the next check — no restart, and they survive one.
+
+`.env` supplies the starting value for each; anything you change in the UI wins
+from then on, and a field that differs shows what `.env` says underneath it.
+**Reset to .env** clears every override.
+
+Two things worth knowing:
+
+- **Widening the radius or price range can produce a burst of alerts.** Listings
+  filtered out before were never recorded, so they look new when they come into
+  range. The 5-per-poll cap absorbs it and the rest land on the dashboard.
+- **Moving the office recomputes every stored distance**, so old rows don't keep
+  showing how far they were from the previous location.
+
 ## The reply message
 
 `REPLY_MESSAGE` in `.env` is the intro sent to a listing. Two things about it:
@@ -158,6 +176,7 @@ Keep it under ~1500 characters; the Craigslist relay truncates longer replies.
 | `notifier.py` | Twilio outbound texts, if SMS is enabled |
 | `replier.py` | Assisted and unattended reply to a listing |
 | `app.py` | Flask routes, background poller, inbox watcher |
+| `settings.py` | Dashboard-adjustable filters, validated and persisted |
 | `db.py` | SQLite storage and dedupe |
 
 ## Fair warning

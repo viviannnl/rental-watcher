@@ -13,6 +13,7 @@ import inbox
 import mailer
 import notifier
 import replier
+import settings
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -224,12 +225,16 @@ def sms():
         return _twiml("Something broke handling that. Check the server logs.")
 
 
-@app.get("/")
-def dashboard():
+def _render(errors=(), saved=None):
     return render_template(
         "dashboard.html",
         listings=db.recent(100),
         config=config,
+        settings=settings.all_settings(),
+        spec=settings.SPEC,
+        defaults=settings.DEFAULTS,
+        errors=list(errors),
+        saved=saved,
         walk=craigslist.walk_minutes,
         playwright=replier.playwright_available(),
         twilio=notifier.configured(),
@@ -239,6 +244,33 @@ def dashboard():
     )
 
 
+@app.get("/")
+def dashboard():
+    return _render()
+
+
+@app.post("/settings")
+def save_settings():
+    if request.form.get("reset"):
+        settings.reset()
+        return _render(saved="Filters reset to the values in .env.")
+
+    changed, errors = settings.update(request.form.to_dict())
+    if errors:
+        return _render(errors=errors), 400
+    if not changed:
+        return _render(saved="No changes.")
+
+    # A new office location makes every stored distance wrong, so redo them.
+    if "office_lat" in changed or "office_lon" in changed:
+        s = settings.all_settings()
+        n = db.recompute_distances(s["office_lat"], s["office_lon"], craigslist.haversine_m)
+        log.info("recomputed distances for %d listings", n)
+
+    summary = ", ".join(f"{k.replace('_', ' ')} to {v}" for k, v in changed.items())
+    return _render(saved=f"Updated {summary}. Applies from the next check onward.")
+
+
 @app.post("/check-inbox")
 def check_inbox():
     return {"handled": handle_email_replies()}
@@ -246,7 +278,8 @@ def check_inbox():
 
 @app.post("/poll")
 def manual_poll():
-    return {"alerted": poll_once()}
+    poll_once()
+    return _render(saved="Checked Craigslist.")
 
 
 @app.post("/reply/<int:num>")
@@ -255,14 +288,7 @@ def manual_reply(num):
     listing = db.get(num)
     if not listing:
         abort(404)
-    ok, note = replier.auto_reply(listing)
-    if ok:
-        db.mark_replied(num, note)
-        return {"ok": True, "note": note}
-    if replier.playwright_available():
-        threading.Thread(target=_assisted, args=(listing,), daemon=True).start()
-        return {"ok": False, "note": f"{note}; opening a browser to finish by hand"}
-    return {"ok": False, "note": note}
+    return _render(saved=act_on_listing(listing))
 
 
 @app.post("/assist/<int:num>")

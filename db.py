@@ -102,3 +102,24 @@ def set_meta(key, value):
         " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, str(value)),
     )
+
+
+def del_meta(key):
+    _q("DELETE FROM meta WHERE key = ?", (key,))
+
+
+def recompute_distances(lat, lon, haversine):
+    """Redo every stored distance against a new office location.
+
+    Without this, moving the office would leave old rows showing how far they were
+    from the previous one, which reads as a bug rather than stale data.
+    """
+    rows = _q("SELECT num, lat, lon FROM listings WHERE lat IS NOT NULL", fetch="all")
+    with _lock:
+        for row in rows:
+            _conn.execute(
+                "UPDATE listings SET distance_m = ? WHERE num = ?",
+                (round(haversine(lat, lon, row["lat"], row["lon"])), row["num"]),
+            )
+        _conn.commit()
+    return len(rows)

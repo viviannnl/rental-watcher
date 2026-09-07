@@ -116,7 +116,16 @@ def parse_item(item):
 
 
 def search():
-    """Fetch current matching listings, nearest-first, each with distance_m."""
+    """Fetch current matching listings, each with distance_m, newest first.
+
+    Filters come from settings (dashboard-adjustable) rather than config, so they
+    are read fresh on every poll.
+    """
+    import settings  # deferred: settings imports db, which shouldn't load on import
+
+    s = settings.all_settings()
+    radius_m, office_lat, office_lon = s["radius_m"], s["office_lat"], s["office_lon"]
+
     params = {
         "areaId": config.CL_AREA_ID,
         "subAreaId": config.CL_SUBAREA_ID,
@@ -125,19 +134,19 @@ def search():
         "lang": "en",
         "searchPath": config.CL_CATEGORY,
         "sort": "date",
-        "min_bedrooms": config.MIN_BEDROOMS,
-        "max_bedrooms": config.MAX_BEDROOMS,
-        "lat": config.OFFICE_LAT,
-        "lon": config.OFFICE_LON,
+        "min_bedrooms": s["min_bedrooms"],
+        "max_bedrooms": s["max_bedrooms"],
+        "lat": office_lat,
+        "lon": office_lon,
         # Ask for a wider radius than we want (API unit is km) and filter precisely
         # below, so listings sitting just outside aren't silently dropped by
         # Craigslist's own rounding.
-        "search_distance": max(1, math.ceil(config.RADIUS_M / 1000) + 1),
+        "search_distance": max(1, math.ceil(radius_m / 1000) + 1),
     }
-    if config.MIN_PRICE:
-        params["min_price"] = config.MIN_PRICE
-    if config.MAX_PRICE:
-        params["max_price"] = config.MAX_PRICE
+    if s["min_price"]:
+        params["min_price"] = s["min_price"]
+    if s["max_price"]:
+        params["max_price"] = s["max_price"]
 
     resp = requests.get(
         SAPI, params=params, headers={"User-Agent": UA, "Accept": "application/json"}, timeout=30
@@ -159,15 +168,15 @@ def search():
         if any(kw in title for kw in config.EXCLUDE_KEYWORDS):
             skipped_kw += 1
             continue
-        d = haversine_m(config.OFFICE_LAT, config.OFFICE_LON, item["lat"], item["lon"])
-        if d > config.RADIUS_M:
+        d = haversine_m(office_lat, office_lon, item["lat"], item["lon"])
+        if d > radius_m:
             continue
         item["distance_m"] = round(d)
         out.append(item)
 
     log.info(
         "craigslist: %d returned, %d within %dm (%d no coords, %d excluded by keyword)",
-        len(items), len(out), config.RADIUS_M, skipped_nogeo, skipped_kw,
+        len(items), len(out), radius_m, skipped_nogeo, skipped_kw,
     )
     # Left in the API's sort=date order (newest first) so callers can prioritise
     # fresh listings; sort by distance at display time instead.
