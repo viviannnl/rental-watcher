@@ -20,7 +20,7 @@ _conn.executescript("""
         lat        REAL,
         lon        REAL,
         distance_m REAL,
-        seen_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        seen_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
         notified   INTEGER NOT NULL DEFAULT 0,
         replied_at TEXT,
         reply_note TEXT
@@ -42,7 +42,25 @@ def _add_missing_columns():
     _conn.commit()
 
 
+def _localize_timestamps():
+    """One-off: rows written before this stored UTC, so times displayed hours off.
+
+    Guarded by a flag because applying 'localtime' to an already-local value would
+    shift it a second time.
+    """
+    if _conn.execute("SELECT 1 FROM meta WHERE key = 'tz_localized'").fetchone():
+        return
+    _conn.execute("UPDATE listings SET seen_at = datetime(seen_at, 'localtime')")
+    _conn.execute(
+        "UPDATE listings SET replied_at = datetime(replied_at, 'localtime')"
+        " WHERE replied_at IS NOT NULL"
+    )
+    _conn.execute("INSERT INTO meta (key, value) VALUES ('tz_localized', '1')")
+    _conn.commit()
+
+
 _add_missing_columns()
+_localize_timestamps()
 
 
 def _q(sql, args=(), fetch=None):
@@ -108,7 +126,7 @@ def save_building_info(num, address, year_built, year_source):
 
 def mark_replied(num, note):
     _q(
-        "UPDATE listings SET replied_at = datetime('now'), reply_note = ? WHERE num = ?",
+        "UPDATE listings SET replied_at = datetime('now', 'localtime'), reply_note = ? WHERE num = ?",
         (note, num),
     )
 

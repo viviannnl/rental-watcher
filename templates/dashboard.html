@@ -75,6 +75,18 @@
       display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap;
     }
     .pill strong { color: var(--ink); font-weight: 600; }
+    h1 .dot.cold { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+    h1 .dot.off  { background: var(--ink-3); box-shadow: 0 0 0 3px var(--line); }
+
+    /* Listings matter more than the form you set once, so on a phone they come
+       first. Ordering in CSS rather than markup keeps the tab order sensible. */
+    .stack { display: flex; flex-direction: column; }
+    .stack .filters  { order: 1; }
+    .stack .listings { order: 2; }
+    @media (max-width: 700px) {
+      .stack .listings { order: 1; }
+      .stack .filters  { order: 2; }
+    }
 
     /* ---- cards ---- */
     .card {
@@ -90,6 +102,7 @@
       letter-spacing: .06em; color: var(--ink-3); margin: 0;
     }
     .card-body { padding: 1.1rem; }
+    .head-tools { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 
     /* ---- alerts ---- */
     .alert {
@@ -100,6 +113,7 @@
     .alert .ico { flex: none; font-weight: 700; line-height: 1.4; }
     .alert.good { background: var(--good-soft); color: var(--good); border-color: var(--good); }
     .alert.bad  { background: var(--bad-soft);  color: var(--bad);  border-color: var(--bad); }
+    .alert.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
     .alert ul { margin: .3rem 0 0; padding-left: 1.1rem; }
 
     /* ---- setup checklist ---- */
@@ -177,12 +191,31 @@
     form.inline { display: inline; }
 
     /* ---- listings ---- */
+    /* Contain the sideways scroll in the card. Without this the whole page slid
+       left-right on a phone, dragging the header off screen with it. */
+    .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
     thead th {
       font-size: .72rem; font-weight: 650; text-transform: uppercase;
       letter-spacing: .05em; color: var(--ink-3); text-align: left;
       padding: .5rem 1.1rem; border-bottom: 1px solid var(--line);
+      white-space: nowrap;
     }
+    thead th a { color: inherit; display: inline-flex; align-items: center; gap: .2rem; }
+    thead th a:hover { color: var(--ink); text-decoration: none; }
+    thead th a.on { color: var(--accent); }
+    thead th a::after { content: ""; font-size: .8em; }
+    thead th a.on::after { content: "▾"; }
+
+    /* ---- segmented toggle ---- */
+    .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 7px; overflow: hidden; }
+    .seg a {
+      font-size: .78rem; font-weight: 560; padding: .26rem .6rem;
+      color: var(--ink-2); background: var(--card);
+    }
+    .seg a + a { border-left: 1px solid var(--line-2); }
+    .seg a:hover { background: var(--bg); text-decoration: none; }
+    .seg a.on { background: var(--accent); border-color: var(--accent); color: #fff; }
     tbody td { padding: .7rem 1.1rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
     tbody tr:last-child td { border-bottom: 0; }
     tbody tr:hover { background: var(--bg); }
@@ -197,6 +230,15 @@
       margin-top: .3rem; overflow: hidden; width: 4.2rem;
     }
     .bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+
+    /* Rows kept from a wider filter. Dimmed rather than hidden, since a place you
+       already emailed shouldn't disappear when you tighten the radius. */
+    tbody tr.stale { background: repeating-linear-gradient(
+      -45deg, transparent, transparent 6px, var(--bg) 6px, var(--bg) 12px); }
+    tbody tr.stale .price, tbody tr.stale .listing { opacity: .7; }
+    .walk.over b { color: var(--warn); }
+    .walk.over .bar span { background: var(--warn); }
+    .why { font-size: .7rem; color: var(--warn); white-space: nowrap; }
     .listing { display: block; font-weight: 520; }
     .listing-title {
       display: block; max-width: 27rem; overflow: hidden;
@@ -225,10 +267,42 @@
     }
     .foot b { color: var(--ink-2); font-weight: 600; }
 
-    @media (max-width: 640px) {
+    /* Below this width a seven-column table can only be read by scrolling
+       sideways, so each row becomes a card instead. Same markup, same DOM order -
+       only the display changes, so nothing needs rendering twice. */
+    @media (max-width: 700px) {
       body { padding: 1.25rem .75rem 3rem; }
-      .hide-sm { display: none; }
-      .listing-title { max-width: 12rem; }
+      /* The title and the toolbar can't share a 390px line, so stack them rather
+         than let the toolbar shove the title onto its own row unaligned. */
+      .card-head { flex-direction: column; align-items: stretch; gap: .6rem; }
+      .head-tools { justify-content: space-between; }
+      .table-wrap { overflow-x: visible; }
+      thead { display: none; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      tbody tr {
+        border-bottom: 1px solid var(--line); padding: .8rem 1.1rem;
+        display: grid; grid-template-columns: auto 1fr auto;
+        grid-template-areas:
+          "price beds reply"
+          "title title title"
+          "walk built found";
+        gap: .15rem .6rem; align-items: center;
+      }
+      tbody tr:hover { background: none; }
+      tbody td { border: 0; padding: 0; }
+      td.price { grid-area: price; font-size: 1.05rem; }
+      td.beds  { grid-area: beds; }
+      td.walk  { grid-area: walk; }
+      td.built { grid-area: built; text-align: center; }
+      td.found { grid-area: found; text-align: right; }
+      td.title { grid-area: title; margin: .1rem 0 .3rem; }
+      td.reply { grid-area: reply; text-align: right; }
+      /* The row number is only there to quote in an email reply; on a phone you
+         tap Send instead, so it earns no space. */
+      td.num { display: none; }
+      .listing-title { max-width: none; white-space: normal; }
+      .bar { width: 100%; max-width: 5rem; }
+      button.small { padding: .34rem .8rem; }
     }
   </style>
 </head>
@@ -236,23 +310,36 @@
 <div class="wrap">
 
   <header>
-    <h1><span class="dot"></span> Rental watcher</h1>
+    {# The dot used to be green unconditionally, which is worse than no indicator:
+       it claimed the watcher was running even when nothing had polled in hours. #}
+    <h1>
+      <span class="dot {{ '' if healthy else ('cold' if last_poll else 'off') }}"
+            title="{% if not last_poll %}No poll recorded since this server started{% elif healthy %}Polling on schedule{% else %}Overdue - last poll was {{ last_poll }}{% endif %}"></span>
+      Rental watcher
+    </h1>
     <div class="pills">
-      <span class="pill">{{ settings.min_bedrooms }}&ndash;{{ settings.max_bedrooms }} bed</span>
+      <span class="pill">
+        {% if last_poll %}checked <strong>{{ last_poll }}</strong>{% else %}<strong>not checked yet</strong>{% endif %}
+      </span>
+      <span class="pill">every <strong>{{ config.POLL_MINUTES }} min</strong></span>
       <span class="pill">
         within <strong>{{ settings.walk_minutes }} min walk</strong> of
         <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}"
            target="_blank" rel="noopener">the office</a>
       </span>
-      <span class="pill">
-        {% if settings.max_price %}<strong>${{ "{:,}".format(settings.min_price) }}&ndash;${{ "{:,}".format(settings.max_price) }}</strong>
-        {% else %}<strong>${{ "{:,}".format(settings.min_price) }}+</strong> no cap{% endif %}
-      </span>
-      <span class="pill">every <strong>{{ config.POLL_MINUTES }} min</strong></span>
       <span class="pill">via <strong>{{ config.NOTIFY_CHANNEL }}</strong></span>
-      {% if config.DRY_RUN %}<span class="pill">dry run &middot; <strong>nothing is sent</strong></span>{% endif %}
     </div>
   </header>
+
+  {% if config.DRY_RUN %}
+    {# Was one pill among six. It changes what every button on this page does, so
+       it belongs where a mode banner belongs. #}
+    <div class="alert warn"><span class="ico">&#9888;</span><div>
+      <b>Dry run &mdash; nothing is actually sent.</b>
+      Alerts and landlord replies are written to the server log only. Set
+      <code>DRY_RUN=0</code> in <code>.env</code> and restart to go live.
+    </div></div>
+  {% endif %}
 
   {% if saved %}
     <div class="alert good"><span class="ico">&check;</span><div>{{ saved }}</div></div>
@@ -318,7 +405,9 @@
   </section>
   {% endif %}
 
-  <form method="post" action="/settings">
+  <div class="stack">
+
+  <form class="filters" method="post" action="/settings{% if qs %}?{{ qs }}{% endif %}">
     <section class="card">
       <div class="card-head">
         <h2 class="card-title">Search filters</h2>
@@ -372,39 +461,66 @@
     </section>
   </form>
 
-  <section class="card">
+  <section class="card listings">
     <div class="card-head">
-      <h2 class="card-title">
-        Listings{% if listings %} &middot; {{ listings|length }}{% endif %}
-      </h2>
-      <form class="inline" method="post" action="/poll">
-        <button class="small" type="submit">Check now</button>
-      </form>
+      <h2 class="card-title">Listings</h2>
+      <div class="head-tools">
+        {# Default is "matching", because the whole point of the filters is that the
+           list obeys them. "All" stays reachable for anything already replied to. #}
+        <span class="seg">
+          <a class="{{ 'on' if show == 'match' }}"
+             href="/?show=match{% if sort != 'new' %}&sort={{ sort }}{% endif %}"
+             title="Only listings today's filters would still find">Matching {{ matching }}</a>
+          <a class="{{ 'on' if show == 'all' }}"
+             href="/?show=all{% if sort != 'new' %}&sort={{ sort }}{% endif %}"
+             title="Everything recorded, including strays from an earlier filter">All {{ total }}</a>
+        </span>
+        <form class="inline" method="post" action="/poll{% if qs %}?{{ qs }}{% endif %}">
+          <button class="small" type="submit">Check now</button>
+        </form>
+      </div>
     </div>
 
     {% if listings %}
+    {% macro sortable(key, label) %}
+      <a class="{{ 'on' if sort == key }}"
+         href="/?sort={{ key }}{% if show != 'match' %}&show={{ show }}{% endif %}">{{ label }}</a>
+    {% endmacro %}
+    <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th>#</th><th>Price</th><th>Bed</th><th>Walk</th><th>Built</th>
-          <th>Listing</th><th class="hide-sm">Found</th><th>Reply</th>
+          <th>#</th>
+          <th>{{ sortable('price', 'Price') }}</th>
+          <th>Bed</th>
+          <th>{{ sortable('walk', 'Walk') }}</th>
+          <th>Built</th>
+          <th>Listing</th>
+          <th>{{ sortable('new', 'Found') }}</th>
+          <th>Reply</th>
         </tr>
       </thead>
       <tbody>
       {% for l in listings %}
-        <tr>
+        {% set over = l.distance_m is not none and l.distance_m > radius_m %}
+        <tr class="{{ 'stale' if not l.matches or l.repost }}">
           <td class="num">{{ l.num }}</td>
           <td class="price">{{ "${:,}".format(l.price) if l.price else "&mdash;"|safe }}</td>
           <td class="beds">
             {{ "studio" if l.bedrooms == 0
                else (l.bedrooms|string + " bed" if l.bedrooms is not none else "&mdash;"|safe) }}
           </td>
-          <td class="walk">
+          <td class="walk {{ 'over' if over }}">
             <b>{{ walk(l.distance_m) }} min</b>
             <span class="m">{{ l.distance_m|int }} m</span>
             <div class="bar">
               <span style="width: {{ [(l.distance_m / radius_m * 100), 100]|min|round|int }}%"></span>
             </div>
+            {% if over %}
+              <div class="why" title="Recorded when your radius was wider than {{ settings.walk_minutes }} min">
+                past your limit
+              </div>
+            {% endif %}
           </td>
           <td class="built" data-built-for="{{ l.num }}">
             {% if l.year_built %}
@@ -418,23 +534,39 @@
               </form>
             {% endif %}
           </td>
-          <td>
-            <a class="listing" href="{{ l.url }}" target="_blank" rel="noopener">
+          <td class="title">
+            {# Titles are clipped to one line; the full text lives in the tooltip so
+               a clipped one is still readable without opening the post. #}
+            <a class="listing" href="{{ l.url }}" target="_blank" rel="noopener"
+               title="{{ l.title }}">
               <span class="listing-title">{{ l.title }}</span>
             </a>
-            <div class="meta" data-address-for="{{ l.num }}">{{ l.address or "" }}</div>
+            <div class="meta" data-address-for="{{ l.num }}">
+              {{ l.address or "" }}
+              {# Two postings is routine and badging it made a badge on nearly every
+                 row, which is wallpaper. Three or more is the useful signal: this
+                 place keeps coming back, so it probably hasn't rented. #}
+              {% if l.repeats >= 2 %}
+                <span class="tag" title="Posted {{ l.repeats + 1 }} times at this price. Often means it hasn't rented.">
+                  relisted {{ l.repeats + 1 }}&times;
+                </span>
+              {% elif l.repost %}
+                <span class="tag" title="An earlier row is the same unit at the same price">repost</span>
+              {% endif %}
+            </div>
           </td>
           {# Tag the ones that DID alert. Flagging the others instead would put a
              badge on every row after a first run, which carries no information. #}
-          <td class="hide-sm meta">
+          <td class="found meta">
             {{ l.seen_at[5:16] }}{% if l.notified %} <span class="tag">alerted</span>{% endif %}
           </td>
-          <td>
+          <td class="reply" data-reply-for="{{ l.num }}">
             {% if l.replied_at %}
               <span class="tag ok" title="{{ l.reply_note }}">replied</span>
             {% else %}
-              <form class="inline" method="post" action="/reply/{{ l.num }}">
-                <button class="small" type="submit">Send</button>
+              <form class="inline send" method="post" action="/reply/{{ l.num }}">
+                <button class="small" type="submit"
+                        title="Send your intro message about this listing">Send</button>
               </form>
             {% endif %}
           </td>
@@ -442,6 +574,14 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
+    {% elif total %}
+      {# Distinguish "nothing matches" from "nothing found yet" - they need
+         completely different actions from you. #}
+      <div class="empty">
+        None of the {{ total }} listings on record match your filters right now.<br>
+        <a href="/?show=all">Show all {{ total }}</a> or widen the filters below.
+      </div>
     {% else %}
       <div class="empty">
         Nothing recorded yet. Hit <b>Check now</b> to sweep Craigslist.
@@ -457,6 +597,7 @@
     {% endif %}
   </section>
 
+  </div>
 </div>
 
 <script>
@@ -497,6 +638,49 @@ document.addEventListener("submit", function (event) {
       button.disabled = false;
       button.textContent = "retry";
       button.title = "That lookup failed. Click to try again.";
+    });
+});
+
+// Send goes to a stranger and can't be taken back, so it asks first - and then
+// reports back in the row rather than re-rendering, which used to scroll you away
+// from the listing you were looking at before you could read the outcome.
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest("form.send");
+  if (!form) return;
+
+  var row = form.closest("tr");
+  var title = row.querySelector(".listing-title");
+  if (!confirm('Send your intro message about "' +
+      (title ? title.textContent.trim() : "this listing") + '"?')) {
+    event.preventDefault();
+    return;
+  }
+  event.preventDefault();
+
+  var cell = form.closest("td");
+  var button = form.querySelector("button");
+  button.disabled = true;
+  button.textContent = "sending…";
+
+  fetch(form.action, { method: "POST", headers: { Accept: "application/json" } })
+    .then(function (response) {
+      if (!response.ok) throw new Error(response.status);
+      return response.json();
+    })
+    .then(function (data) {
+      var tag = document.createElement("span");
+      // Not replied means the captcha handoff happened: a browser window is
+      // opening and the note explains that, so it must stay readable.
+      tag.className = data.replied ? "tag ok" : "tag";
+      tag.title = data.note;
+      tag.textContent = data.replied ? "replied" : "your turn";
+      cell.replaceChildren(tag);
+      if (!data.replied) alert(data.note);
+    })
+    .catch(function () {
+      button.disabled = false;
+      button.textContent = "retry";
+      button.title = "That didn't go through. Click to try again.";
     });
 });
 </script>

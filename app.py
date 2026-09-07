@@ -1,3 +1,4 @@
+import datetime
 import logging
 import os
 import re
@@ -114,10 +115,16 @@ def poll_once():
     return alerted
 
 
+def _record_poll():
+    """Stamp the time of a completed poll so the dashboard can prove it's alive."""
+    db.set_meta("last_poll", datetime.datetime.now().isoformat(timespec="seconds"))
+
+
 def poller():
     while True:
         try:
             poll_once()
+            _record_poll()
         except Exception:
             log.exception("poll failed; will retry next interval")
         time.sleep(config.POLL_MINUTES * 60)
@@ -244,16 +251,129 @@ def sms():
         return _twiml("Something broke handling that. Check the server logs.")
 
 
+# Column -> sort key. Rows missing the value sort last either way, so an
+# unpriced listing never masquerades as the cheapest.
+SORTS = {
+    "new": lambda l: -l["num"],
+    "walk": lambda l: (l["distance_m"] is None, l["distance_m"] or 0),
+    "price": lambda l: (l["price"] is None, l["price"] or 0),
+}
+
+# How far back the dashboard looks. Bounded so the page can't get slower forever,
+# but wide enough that the counts on the Matching/All toggle are the real totals.
+WINDOW = 500
+
+
+def matches_filters(listing, s, radius):
+    """Whether a stored listing would still be returned by today's filters.
+
+    Rows outlive the filters that found them - widen the radius, look around, narrow
+    it again, and the table keeps the strays. Marking them beats silently dropping
+    them, because a place you already emailed shouldn't vanish.
+    """
+    if listing["distance_m"] is not None and listing["distance_m"] > radius:
+        return False
+    price = listing["price"]
+    if price is not None:
+        if s["min_price"] and price < s["min_price"]:
+            return False
+        if s["max_price"] and price > s["max_price"]:
+            return False
+    beds = listing["bedrooms"]
+    if beds is not None and not s["min_bedrooms"] <= beds <= s["max_bedrooms"]:
+        return False
+    return True
+
+
+def mark_reposts(listings):
+    """Flag rows that are the same unit relisted, keeping the newest as canonical.
+
+    Landlords repost the same place every few days, and Craigslist mints a new id
+    each time, so the dedupe on cl_id can't see it. Sorting by walking distance made
+    this obvious: identical title, price and distance, three rows apart. Rather than
+    guess and hide, the newest row says how many times it has appeared.
+
+    Expects newest-first input, which is what db.recent gives.
+    """
+    canonical = {}
+    for item in listings:
+        title = re.sub(r"[^a-z0-9]+", "", (item["title"] or "").lower())[:40]
+        # Coordinates wobble slightly between postings, so bucket to 25 m.
+        key = (item["price"], round((item["distance_m"] or 0) / 25), title)
+        first = canonical.get(key)
+        if first is None:
+            canonical[key] = item
+            item["repost"], item["repeats"] = False, 0
+        else:
+            item["repost"], item["repeats"] = True, 0
+            first["repeats"] += 1
+
+
+def _ago(iso):
+    """'4 min ago' for a stored local timestamp, or None if there isn't one."""
+    if not iso:
+        return None
+    try:
+        then = datetime.datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    seconds = (datetime.datetime.now() - then).total_seconds()
+    if seconds < 90:
+        return "just now"
+    if seconds < 5400:
+        return f"{round(seconds / 60)} min ago"
+    if seconds < 172800:
+        return f"{round(seconds / 3600)} h ago"
+    return f"{round(seconds / 86400)} d ago"
+
+
 def _render(errors=(), saved=None):
+    s = settings.all_settings()
+    radius = settings.radius_m()
+
+    # Whole-table window: the counts on the toggle have to be true totals, not
+    # "true within the first page", or they mislead more than they inform.
+    listings = db.recent(WINDOW)
+    for item in listings:
+        item["matches"] = matches_filters(item, s, radius)
+    mark_reposts(listings)
+    total = len(listings)
+    matching = sum(1 for item in listings if item["matches"] and not item["repost"])
+
+    show = request.args.get("show", "match")
+    sort = request.args.get("sort", "new")
+    if show == "match":
+        listings = [item for item in listings if item["matches"] and not item["repost"]]
+    listings.sort(key=SORTS.get(sort, SORTS["new"]))
+
+    last_poll = db.get_meta("last_poll")
+    # Twice the interval is the grace period: one skipped cycle is a blip, two
+    # means something is wrong and the dot should stop claiming otherwise.
+    stale_after = config.POLL_MINUTES * 120
+    healthy = False
+    if last_poll:
+        try:
+            age = (datetime.datetime.now() - datetime.datetime.fromisoformat(last_poll))
+            healthy = age.total_seconds() < stale_after
+        except ValueError:
+            pass
+
     return render_template(
         "dashboard.html",
-        listings=db.recent(100),
+        listings=listings[:100],
+        total=total,
+        matching=matching,
+        show=show,
+        sort=sort,
+        qs=request.query_string.decode(),
+        last_poll=_ago(last_poll),
+        healthy=healthy,
         config=config,
-        settings=settings.all_settings(),
+        settings=s,
         spec=settings.SPEC,
         notes=settings.NOTES,
         defaults=settings.DEFAULTS,
-        radius_m=settings.radius_m(),
+        radius_m=radius,
         errors=list(errors),
         saved=saved,
         walk=craigslist.walk_minutes,
@@ -306,17 +426,28 @@ def check_inbox():
 
 @app.post("/poll")
 def manual_poll():
-    poll_once()
-    return _render(saved="Checked Craigslist.")
+    found = poll_once()
+    _record_poll()
+    return _render(
+        saved=f"Checked Craigslist - {found} new listing{'' if found == 1 else 's'} alerted."
+    )
 
 
 @app.post("/reply/<int:num>")
 def manual_reply(num):
-    """Try unattended first, then fall back to opening a browser to finish by hand."""
+    """Try unattended first, then fall back to opening a browser to finish by hand.
+
+    Answers JSON when asked, so the row can report back where you clicked instead of
+    re-rendering and throwing you to the top of a hundred-row table.
+    """
     listing = db.get(num)
     if not listing:
         abort(404)
-    return _render(saved=act_on_listing(listing))
+    outcome = act_on_listing(listing)
+    if request.accept_mimetypes.best == "application/json":
+        fresh = db.get(num)
+        return {"num": num, "note": outcome, "replied": bool(fresh["replied_at"])}
+    return _render(saved=outcome)
 
 
 @app.post("/building/<int:num>")
