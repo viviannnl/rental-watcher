@@ -4,679 +4,664 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rental watcher</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <style>
-    /* Palette is defined once per scheme so light and dark stay in step. */
+    /* Light, warm palette. One scheme on purpose - the design leans bright. */
     :root {
-      color-scheme: light dark;
-      --bg: #f7f7f9;
-      --card: #ffffff;
-      --ink: #16171a;
-      --ink-2: #5c6068;
-      --ink-3: #8d929b;
-      --line: #e4e5e9;
-      --line-2: #d3d5db;
-      --accent: #3b5bdb;
-      --accent-soft: #edf0fd;
-      --good: #1f7a3d;
-      --good-soft: #e7f4ec;
-      --warn: #9a5b00;
-      --warn-soft: #fdf2e0;
-      --bad: #b3261e;
-      --bad-soft: #fdecea;
-      --radius: 10px;
-      --shadow: 0 1px 2px rgba(16,17,26,.05), 0 1px 8px rgba(16,17,26,.04);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #16171a;
-        --card: #1e2024;
-        --ink: #eceef2;
-        --ink-2: #a2a8b3;
-        --ink-3: #767c87;
-        --line: #2c2f35;
-        --line-2: #3a3e46;
-        --accent: #8ba4ff;
-        --accent-soft: #22273a;
-        --good: #6ddc95;
-        --good-soft: #17291d;
-        --warn: #f0b354;
-        --warn-soft: #2b2216;
-        --bad: #ff8b80;
-        --bad-soft: #2e1a18;
-        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 8px rgba(0,0,0,.2);
-      }
+      --bg: #fdf6ec;
+      --bg-2: #f8ecdb;
+      --card: #fffaf3;
+      --ink: #3a2c22;
+      --ink-2: #7a6a5c;
+      --ink-3: #a08a76;
+      --line: #ecdcc6;
+      --line-2: #e0cbad;
+      --accent: #e0743b;
+      --accent-2: #f2994a;
+      --accent-deep: #c15a24;
+      --accent-soft: #fdeadd;
+      --good: #2f8f5b;
+      --warn: #b9781f;
+      --warn-soft: #fbeecb;
+      --bad: #b3402a;
+      --bad-soft: #fbe3dc;
+      --radius: 16px;
+      --shadow: 0 12px 30px rgba(150,90,40,.08);
+      --shadow-lg: 0 18px 46px rgba(150,90,40,.14);
     }
 
     * { box-sizing: border-box; }
     body {
-      margin: 0; padding: 2rem 1.25rem 4rem;
-      background: var(--bg); color: var(--ink);
+      margin: 0; background: var(--bg); color: var(--ink);
       font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
       -webkit-font-smoothing: antialiased;
     }
-    .wrap { max-width: 68rem; margin: 0 auto; }
-    a { color: var(--accent); text-decoration: none; }
+    .serif { font-family: Georgia, "Times New Roman", serif; }
+    .wrap { max-width: 74rem; margin: 0 auto; padding: 0 1.25rem; }
+    a { color: var(--accent-deep); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    /* ---- header ---- */
-    header { margin-bottom: 1.5rem; }
-    h1 {
-      font-size: 1.45rem; font-weight: 650; letter-spacing: -.02em;
-      margin: 0 0 .55rem; display: flex; align-items: center; gap: .55rem;
-    }
-    h1 .dot {
-      width: .5rem; height: .5rem; border-radius: 50%;
-      background: var(--good); box-shadow: 0 0 0 3px var(--good-soft);
-    }
-    .pills { display: flex; flex-wrap: wrap; gap: .4rem; }
-    .pill {
-      font-size: .78rem; color: var(--ink-2); background: var(--card);
-      border: 1px solid var(--line); border-radius: 99px; padding: .2rem .6rem;
-      display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap;
-    }
-    .pill strong { color: var(--ink); font-weight: 600; }
-    /* The one pill worth noticing. The digest email only says there is something to
-       see; this is where you find out what, and what you haven't looked at yet. */
-    .pill.fresh {
-      background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
-    }
-    .pill.fresh strong { color: var(--accent); }
-    h1 .dot.cold { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
-    h1 .dot.off  { background: var(--ink-3); box-shadow: 0 0 0 3px var(--line); }
+    /* ---------------- FIXED MAP HERO ----------------
+       The map fills the first screen and is pinned behind everything. The content
+       panel below scrolls up over it, so you meet the neighbourhood first and the
+       app rises to meet you. */
+    /* A full-screen map hero in normal flow: it scrolls away as the listings come up,
+       so there's no lingering strip of map. Scroll back to the top to see it again. */
+    .hero { position: relative; height: 100vh; z-index: 0; overflow: hidden; background: var(--bg); }
+    /* z-index:1 makes #map its own stacking context, so Leaflet's internal panes
+       (z up to ~700) stay contained and don't paint over the overlay UI above. */
+    #map { position: absolute; inset: 0; z-index: 1; background: var(--bg); }
+    /* Keep the basemap mostly true-colour, just a touch warm and darker so the
+       cursor glow reads against it. */
+    #map .leaflet-tile-pane { filter: brightness(.7) contrast(1.12) saturate(1.05) sepia(.1); }
+    /* A warm light that follows the cursor across the map. Screen blend lifts the
+       cream basemap toward a soft glow; --mx/--my are set from JS on pointer move. */
+    .hero-spotlight { position: absolute; inset: 0; z-index: 2; pointer-events: none;
+      opacity: 0; transition: opacity .3s ease; mix-blend-mode: screen;
+      background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%),
+        rgba(255,205,130,.95), rgba(255,165,70,.4) 40%, transparent 66%); }
+    /* Just enough gradient at top & bottom to keep the brand and the stat pills legible. */
+    .hero-veil { position: absolute; inset: 0; z-index: 2; pointer-events: none;
+      background: linear-gradient(180deg, rgba(253,246,236,.8) 0%, transparent 20%, transparent 62%, rgba(253,246,236,.85) 100%); }
+    .hero-ui { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+    .hero-ui a, .hero-ui .scrollcue { pointer-events: auto; }
 
-    /* Listings matter more than the form you set once, so on a phone they come
-       first. Ordering in CSS rather than markup keeps the tab order sensible. */
-    .stack { display: flex; flex-direction: column; }
-    .stack .filters  { order: 1; }
-    .stack .listings { order: 2; }
-    @media (max-width: 700px) {
-      .stack .listings { order: 1; }
-      .stack .filters  { order: 2; }
-    }
+    .brand { position: absolute; top: 1.6rem; left: 1.6rem; display: flex; align-items: center; gap: .7rem; }
+    .brand .mk { width: 2.5rem; height: 2.5rem; border-radius: .7rem; display: flex; align-items: center; justify-content: center;
+      border: 1px solid rgba(224,116,59,.4); background: rgba(255,250,243,.85); box-shadow: var(--shadow); }
+    .brand .nm { font-size: 1.25rem; font-weight: 600; letter-spacing: .01em; color: #4a382c; }
+    .brand .tag { font-size: .74rem; color: var(--ink-2); }
 
-    /* ---- cards ---- */
-    .card {
-      background: var(--card); border: 1px solid var(--line);
-      border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1.1rem;
-    }
-    .card-head {
-      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-      padding: .8rem 1.1rem; border-bottom: 1px solid var(--line);
-    }
-    .card-title {
-      font-size: .74rem; font-weight: 680; text-transform: uppercase;
-      letter-spacing: .06em; color: var(--ink-3); margin: 0;
-    }
-    .card-body { padding: 1.1rem; }
-    .head-tools { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    /* status dots, top-right */
+    .hero-status { position: absolute; top: 1.8rem; right: 1.8rem; display: flex; gap: 1rem; }
+    .hero-status .tog { font-size: .76rem; color: var(--ink-2); display: flex; align-items: center; gap: .45rem;
+      background: rgba(255,250,243,.82); border: 1px solid var(--line); border-radius: 999px; padding: .35rem .7rem; box-shadow: var(--shadow); }
+    .hero-status .tog .d { width: .45rem; height: .45rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(224,116,59,.6); }
+    .hero-status .tog.cold .d { background: var(--warn); box-shadow: 0 0 8px rgba(185,120,31,.6); }
+    .hero-status .tog.off .d  { background: var(--ink-3); box-shadow: none; }
 
-    /* ---- alerts ---- */
-    .alert {
-      display: flex; gap: .6rem; align-items: flex-start;
-      border-radius: var(--radius); padding: .65rem .85rem; margin-bottom: 1.1rem;
-      font-size: .87rem; border: 1px solid transparent;
-    }
-    .alert .ico { flex: none; font-weight: 700; line-height: 1.4; }
-    .alert.good { background: var(--good-soft); color: var(--good); border-color: var(--good); }
+    /* stat pills + scroll cue at the bottom of the map */
+    .hero-foot { position: absolute; left: 0; right: 0; bottom: 2rem; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 1.1rem; }
+    .hero-stats { display: flex; gap: .6rem; flex-wrap: wrap; justify-content: center; padding: 0 1rem; }
+    .hero-stat { background: rgba(255,250,243,.85); backdrop-filter: blur(6px); border: 1px solid var(--line);
+      border-radius: 999px; padding: .5rem 1.1rem; font-size: .84rem; color: var(--ink); box-shadow: var(--shadow); }
+    .hero-stat b { color: var(--accent-deep); font-family: Georgia, serif; font-weight: 400; font-size: 1.05rem; }
+    .scrollcue { display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem;
+      border-radius: 50%; background: rgba(255,250,243,.9); border: 1px solid var(--line); box-shadow: var(--shadow);
+      color: var(--accent-deep); font-size: 1.1rem; cursor: pointer; animation: bob 1.8s ease-in-out infinite; }
+    @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+    /* Leaflet markers, restyled warm. */
+    .pin-listing { border-radius: 50%; background: var(--accent); border: 2px solid #fff6ec; box-shadow: 0 0 10px rgba(224,116,59,.55); }
+    .pin-listing.is-new { background: var(--accent-2); }
+    .pin-listing.over { background: var(--warn); }
+    .pin-office { border-radius: 50%; background: #ff9d3c; border: 3px solid #fff; box-shadow: 0 0 22px rgba(255,157,60,.7); }
+    /* the pin you clicked, so the map end of the link is obvious too */
+    .pin-listing.picked { transform: scale(1.6); background: var(--accent-deep); box-shadow: 0 0 0 4px rgba(224,116,59,.35), 0 0 14px rgba(224,116,59,.8); }
+    .leaflet-container { background: var(--bg); font: inherit; }
+    .leaflet-popup-content-wrapper { border-radius: 10px; }
+    .leaflet-popup-content { margin: .6rem .8rem; font-size: .82rem; color: var(--ink); }
+
+    /* ---------------- CONTENT PANEL (below the map hero) ---------------- */
+    /* A small negative margin lifts the rounded panel over the map's bottom edge for
+       a clean seam - a lip, not a band. */
+    .content { position: relative; z-index: 2; background: var(--bg); margin-top: -2.2rem;
+      border-radius: 28px 28px 0 0; box-shadow: 0 -20px 40px rgba(150,90,40,.14); padding-bottom: 4rem; }
+    .content::before { content: ""; display: block; width: 3rem; height: 4px; border-radius: 3px;
+      background: var(--line-2); margin: .9rem auto .2rem; }
+    .content-head { text-align: center; padding: 1.8rem 1.25rem .4rem; }
+    .content-head h1 { margin: 0; font-size: 2.6rem; font-weight: 400; font-style: italic; color: #3a2822; line-height: 1.08; letter-spacing: -.01em; }
+    .content-head .sub { margin-top: .9rem; font-size: 1rem; color: var(--ink-2); }
+
+    /* ---------------- ALERTS ---------------- */
+    .alert { display: flex; gap: .6rem; align-items: flex-start; margin: 1.1rem 0;
+      border-radius: 12px; padding: .7rem .9rem; font-size: .88rem; border: 1px solid transparent; }
+    .alert .ico { flex: none; font-weight: 700; }
+    .alert.good { background: #e9f6ee; color: var(--good); border-color: var(--good); }
     .alert.bad  { background: var(--bad-soft);  color: var(--bad);  border-color: var(--bad); }
     .alert.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
     .alert ul { margin: .3rem 0 0; padding-left: 1.1rem; }
+    code { font: .84em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: .05rem .3rem; }
 
-    /* ---- setup checklist ---- */
+    /* ---------------- CARDS / SECTIONS ---------------- */
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1.4rem; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .9rem 1.2rem; border-bottom: 1px solid var(--line); }
+    .card-title { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); margin: 0; }
+    .card-body { padding: 1.2rem; }
+    .head-tools { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
     .notice { display: flex; gap: .65rem; padding: .6rem 0; border-top: 1px solid var(--line); }
     .notice:first-child { border-top: 0; padding-top: 0; }
-    .notice:last-child { padding-bottom: 0; }
-    .notice .badge {
-      flex: none; margin-top: .18rem; width: .55rem; height: .55rem; border-radius: 50%;
-    }
+    .notice .badge { flex: none; margin-top: .3rem; width: .55rem; height: .55rem; border-radius: 50%; }
     .badge.blocked { background: var(--bad); }
     .badge.heads-up { background: var(--warn); }
     .notice-text { font-size: .87rem; color: var(--ink-2); }
     .notice-text b { color: var(--ink); font-weight: 620; }
-    code {
-      font: .84em ui-monospace, SFMono-Regular, Menlo, monospace;
-      background: var(--bg); border: 1px solid var(--line);
-      border-radius: 4px; padding: .05rem .3rem;
-    }
 
-    /* ---- filters ---- */
+    /* ---------------- FILTERS ---------------- */
+    .filters { margin: 1.6rem 0; }
     .grid { display: grid; gap: .85rem 1rem; }
-    /* Bottom-align the inputs so a wrapped label or a chip can't stagger the row. */
     .grid > div { display: flex; flex-direction: column; justify-content: flex-end; }
     .grid.five { grid-template-columns: repeat(5, 1fr); }
     .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 26rem; }
     @media (max-width: 860px) { .grid.five { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 460px) {
-      .grid.five, .grid.two { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 460px) { .grid.five, .grid.two { grid-template-columns: 1fr; } }
+    label { display: block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); margin-bottom: .35rem; }
+    input[type=number] { font: inherit; width: 100%; padding: .5rem .6rem; color: var(--ink); background: var(--bg); border: 1px solid var(--line-2); border-radius: 10px; transition: border-color .12s, box-shadow .12s; }
+    input[type=number]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .chip { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: .1rem .35rem; border-radius: 5px; background: var(--accent-soft); color: var(--accent-deep); cursor: help; vertical-align: 1px; margin-left: .25rem; border: 1px solid rgba(224,116,59,.3); }
+    .hint { font-size: .74rem; color: var(--ink-3); }
     .advanced { margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: .8rem; }
-    .advanced summary {
-      cursor: pointer; font-size: .78rem; font-weight: 580; color: var(--ink-2);
-      list-style: none; display: inline-flex; align-items: center; gap: .35rem;
-    }
+    .advanced summary { cursor: pointer; font-size: .78rem; font-weight: 600; color: var(--ink-2); list-style: none; display: inline-flex; align-items: center; gap: .35rem; }
     .advanced summary::-webkit-details-marker { display: none; }
-    .advanced summary::before { content: "▸"; color: var(--ink-3); font-size: .7rem; }
-    .advanced[open] summary::before { content: "▾"; }
-    .advanced summary:hover { color: var(--ink); }
-    .advanced .grid { margin-top: .8rem; }
-    label {
-      display: block; font-size: .76rem; font-weight: 560;
-      color: var(--ink-2); margin-bottom: .3rem;
-    }
-    input[type=number] {
-      font: inherit; width: 100%; padding: .42rem .55rem;
-      color: var(--ink); background: var(--bg);
-      border: 1px solid var(--line-2); border-radius: 7px;
-      transition: border-color .12s, box-shadow .12s;
-    }
-    input[type=number]:focus {
-      outline: none; border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-    .hint { font-size: .72rem; color: var(--ink-3); margin-top: .25rem; }
-    .chip {
-      font-size: .64rem; font-weight: 600; text-transform: uppercase;
-      letter-spacing: .04em; padding: .05rem .3rem; border-radius: 3px;
-      background: var(--accent-soft); color: var(--accent); cursor: help;
-      vertical-align: 1px; margin-left: .15rem;
-    }
+    .advanced summary::before { content: "\25B8"; color: var(--ink-3); font-size: .7rem; }
+    .advanced[open] summary::before { content: "\25BE"; }
     .row { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; margin-top: 1.1rem; }
 
-    /* ---- buttons ---- */
-    button {
-      font: inherit; font-weight: 560; cursor: pointer;
-      padding: .42rem .85rem; border-radius: 7px;
-      border: 1px solid var(--line-2); background: var(--card); color: var(--ink);
-      transition: background .12s, border-color .12s, transform .06s;
-    }
-    button:hover { border-color: var(--ink-3); }
+    /* ---------------- BUTTONS ---------------- */
+    button { font: inherit; font-weight: 600; cursor: pointer; padding: .5rem .95rem; border-radius: 11px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); transition: background .12s, border-color .12s, transform .06s, box-shadow .12s; }
+    button:hover { border-color: var(--accent); }
     button:active { transform: translateY(1px); }
-    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-    button.primary:hover { filter: brightness(1.08); }
-    button.small { padding: .26rem .6rem; font-size: .82rem; }
+    button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); border-color: transparent; color: #fff; box-shadow: 0 8px 20px rgba(224,116,59,.28); }
+    button.primary:hover { filter: brightness(1.05); }
+    button.ghost { background: transparent; border-color: rgba(224,116,59,.4); color: var(--accent-deep); }
+    button.small { padding: .3rem .7rem; font-size: .82rem; }
+    button.link { background: none; border: 0; padding: 0; font-size: .78rem; color: var(--accent-deep); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+    button.link:hover { text-decoration-style: solid; }
     form.inline { display: inline; }
 
-    /* ---- listings ---- */
-    /* Contain the sideways scroll in the card. Without this the whole page slid
-       left-right on a phone, dragging the header off screen with it. */
-    .table-wrap { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; }
-    thead th {
-      font-size: .72rem; font-weight: 650; text-transform: uppercase;
-      letter-spacing: .05em; color: var(--ink-3); text-align: left;
-      padding: .5rem 1.1rem; border-bottom: 1px solid var(--line);
-      white-space: nowrap;
-    }
-    thead th a { color: inherit; display: inline-flex; align-items: center; gap: .2rem; }
-    thead th a:hover { color: var(--ink); text-decoration: none; }
-    thead th a.on { color: var(--accent); }
-    thead th a::after { content: ""; font-size: .8em; }
-    thead th a.on::after { content: "▾"; }
+    /* ---------------- LISTINGS ---------------- */
+    .listings-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 0 0 1.2rem; flex-wrap: wrap; }
+    .listings-head .t { font-family: Georgia, serif; font-style: italic; font-size: 1.6rem; color: #3a2822; margin: 0; }
+    .seg { display: inline-flex; gap: 1.1rem; font-size: .82rem; color: var(--ink-3); align-items: center; }
+    .seg a { color: var(--ink-3); }
+    .seg a.on { color: var(--accent-deep); border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+    .seg a:hover { color: var(--ink); text-decoration: none; }
+    .sortbar { font-size: .78rem; color: var(--ink-3); margin-bottom: .9rem; display: flex; gap: .8rem; align-items: center; }
+    .sortbar a { color: var(--ink-3); }
+    .sortbar a.on { color: var(--accent-deep); font-weight: 600; }
 
-    /* ---- segmented toggle ---- */
-    .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 7px; overflow: hidden; }
-    .seg a {
-      font-size: .78rem; font-weight: 560; padding: .26rem .6rem;
-      color: var(--ink-2); background: var(--card);
-    }
-    .seg a + a { border-left: 1px solid var(--line-2); }
-    .seg a:hover { background: var(--bg); text-decoration: none; }
-    .seg a.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-    tbody td { padding: .7rem 1.1rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
-    tbody tr:last-child td { border-bottom: 0; }
-    tbody tr:hover { background: var(--bg); }
-    .num { color: var(--ink-3); font-size: .8rem; font-variant-numeric: tabular-nums; }
-    .price { font-weight: 640; font-size: .97rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .beds { font-size: .84rem; color: var(--ink-2); white-space: nowrap; }
-    .walk { white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .walk b { font-weight: 600; }
-    .walk .m { color: var(--ink-3); font-size: .76rem; }
-    .bar {
-      height: 3px; border-radius: 2px; background: var(--line);
-      margin-top: .3rem; overflow: hidden; width: 4.2rem;
-    }
-    .bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
+    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 620px) { .cards { grid-template-columns: 1fr; } }
 
-    /* Rows kept from a wider filter. Dimmed rather than hidden, since a place you
-       already emailed shouldn't disappear when you tighten the radius. */
-    tbody tr.stale { background: repeating-linear-gradient(
-      -45deg, transparent, transparent 6px, var(--bg) 6px, var(--bg) 12px); }
-    tbody tr.stale .price, tbody tr.stale .listing { opacity: .7; }
-    .walk.over b { color: var(--warn); }
-    .walk.over .bar span { background: var(--warn); }
-    .why { font-size: .7rem; color: var(--warn); white-space: nowrap; }
-    .listing { display: block; font-weight: 520; }
-    .listing-title {
-      display: block; max-width: 27rem; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap;
-    }
-    .meta { font-size: .74rem; color: var(--ink-3); margin-top: .1rem; }
-    .tag {
-      display: inline-block; font-size: .71rem; font-weight: 560;
-      padding: .1rem .4rem; border-radius: 4px;
-      background: var(--bg); border: 1px solid var(--line); color: var(--ink-2);
-    }
-    .tag.ok { background: var(--good-soft); border-color: var(--good); color: var(--good); }
-    .tag.fresh {
-      background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 620;
-    }
-    .built { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: .87rem; }
-    .built b { font-weight: 600; }
+    .lc { position: relative; background: var(--card); border: 1px solid var(--line-2); border-radius: 18px; padding: 1.25rem 1.3rem; box-shadow: var(--shadow); overflow: hidden; scroll-margin-top: 4rem; transition: box-shadow .15s, transform .15s, border-color .15s; }
+    .lc:hover { box-shadow: var(--shadow-lg); }
+    .lc::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, var(--accent-2), var(--accent)); }
+    .lc.stale { opacity: .72; }
+    .lc.stale::before { background: var(--line-2); }
+    /* short pulse when you arrive from a pin */
+    @keyframes flashcard { 0% { box-shadow: 0 0 0 4px var(--accent); } 100% { box-shadow: var(--shadow-lg); } }
+    .lc.flash { animation: flashcard 1.2s ease-out; }
+    /* persistent "this is the one you clicked" state until you pick another */
+    .lc.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), var(--shadow-lg); }
+    .lc.selected .from-map { display: inline-flex; }
+    .from-map { display: none; align-items: center; gap: .3rem; position: absolute; top: .9rem; right: 1rem;
+      background: var(--accent); color: #fff; font-size: .64rem; font-weight: 700; letter-spacing: .04em;
+      text-transform: uppercase; padding: .18rem .5rem; border-radius: 999px; }
+
+    .lc .prow { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
+    .lc .price { font-family: Georgia, serif; font-size: 1.85rem; color: #3a2822; font-variant-numeric: tabular-nums; }
+    .lc .newtag { font-size: .66rem; letter-spacing: .06em; color: #fff; background: var(--accent); border-radius: 999px; padding: .18rem .5rem; display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
+    .lc .newtag .d { width: .3rem; height: .3rem; border-radius: 50%; background: #fff; }
+    .lc .facts { font-size: .82rem; color: var(--ink-2); margin: .75rem 0 .25rem; }
+    .lc .facts b { color: var(--accent-deep); font-weight: 600; }
+    .lc .facts .over { color: var(--warn); }
+    .lc .meter { height: 4px; border-radius: 3px; background: rgba(200,150,95,.18); margin: .6rem 0 1rem; overflow: hidden; }
+    .lc .meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius: 3px; }
+    .lc .meter.over span { background: var(--warn); }
+    .lc .title { display: block; font-size: .95rem; line-height: 1.4; color: var(--ink); font-weight: 500; margin-bottom: .3rem; }
+    .lc .title:hover { color: var(--accent-deep); text-decoration: none; }
+    .lc .addr { font-size: .78rem; color: var(--ink-3); }
+    .lc .tag { display: inline-block; margin-top: .5rem; font-size: .68rem; font-weight: 600; padding: .12rem .45rem; border-radius: 7px; background: var(--bg-2); border: 1px solid var(--line); color: var(--ink-2); }
+    .lc .tag.relist { color: var(--accent-deep); border-color: rgba(224,116,59,.3); background: var(--accent-soft); }
+    .lc .foot { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+    .lc .found { font-size: .74rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
     .muted { color: var(--ink-3); font-size: .8rem; }
-    button.link {
-      background: none; border: 0; padding: 0; font-size: .78rem;
-      color: var(--accent); cursor: pointer; text-decoration: underline;
-      text-decoration-style: dotted; text-underline-offset: 2px;
-    }
-    button.link:hover { text-decoration-style: solid; }
-    .empty { padding: 2.5rem 1.1rem; text-align: center; color: var(--ink-3); font-size: .9rem; }
-    .foot {
-      padding: .65rem 1.1rem; border-top: 1px solid var(--line);
-      font-size: .78rem; color: var(--ink-3);
-    }
-    .foot b { color: var(--ink-2); font-weight: 600; }
 
-    /* Below this width a seven-column table can only be read by scrolling
-       sideways, so each row becomes a card instead. Same markup, same DOM order -
-       only the display changes, so nothing needs rendering twice. */
+    .empty { padding: 2.5rem 1.1rem; text-align: center; color: var(--ink-3); font-size: .92rem; }
+    .foot-note { margin-top: 1.4rem; font-size: .8rem; color: var(--ink-3); }
+    .foot-note b { color: var(--ink-2); font-weight: 600; }
+
     @media (max-width: 700px) {
-      body { padding: 1.25rem .75rem 3rem; }
-      /* The title and the toolbar can't share a 390px line, so stack them rather
-         than let the toolbar shove the title onto its own row unaligned. */
-      .card-head { flex-direction: column; align-items: stretch; gap: .6rem; }
-      .head-tools { justify-content: space-between; }
-      .table-wrap { overflow-x: visible; }
-      thead { display: none; }
-      table, tbody, tr, td { display: block; width: 100%; }
-      tbody tr {
-        border-bottom: 1px solid var(--line); padding: .8rem 1.1rem;
-        display: grid; grid-template-columns: auto 1fr auto;
-        grid-template-areas:
-          "price beds reply"
-          "title title title"
-          "walk built found";
-        gap: .15rem .6rem; align-items: center;
-      }
-      tbody tr:hover { background: none; }
-      tbody td { border: 0; padding: 0; }
-      td.price { grid-area: price; font-size: 1.05rem; }
-      td.beds  { grid-area: beds; }
-      td.walk  { grid-area: walk; }
-      td.built { grid-area: built; text-align: center; }
-      td.found { grid-area: found; text-align: right; }
-      td.title { grid-area: title; margin: .1rem 0 .3rem; }
-      td.reply { grid-area: reply; text-align: right; }
-      /* The row number is only there to quote in an email reply; on a phone you
-         tap Send instead, so it earns no space. */
-      td.num { display: none; }
-      .listing-title { max-width: none; white-space: normal; }
-      .bar { width: 100%; max-width: 5rem; }
-      button.small { padding: .34rem .8rem; }
+      .hero-status { display: none; }
+      .content-head h1 { font-size: 1.9rem; }
+      .content-head .sub { font-size: .9rem; }
     }
   </style>
 </head>
 <body>
-<div class="wrap">
 
-  <header>
-    {# The dot used to be green unconditionally, which is worse than no indicator:
-       it claimed the watcher was running even when nothing had polled in hours. #}
-    <h1>
-      <span class="dot {{ '' if healthy else ('cold' if last_poll else 'off') }}"
-            title="{% if not last_poll %}No poll recorded since this server started{% elif healthy %}Polling on schedule{% else %}Overdue - last poll was {{ last_poll }}{% endif %}"></span>
-      Rental watcher
-    </h1>
-    <div class="pills">
-      <span class="pill">
-        {% if last_poll %}checked <strong>{{ last_poll }}</strong>{% else %}<strong>not checked yet</strong>{% endif %}
-      </span>
-      <span class="pill">every <strong>{{ config.POLL_MINUTES }} min</strong></span>
-      <span class="pill">
-        within <strong>{{ settings.walk_minutes }} min walk</strong> of
-        <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}"
-           target="_blank" rel="noopener">the office</a>
-      </span>
-      {# Was "via email". Email is now one digest per check rather than a per-listing
-         alert, so the useful thing to say here is what you haven't looked at. #}
-      {% if new_count %}
-        <span class="pill fresh"><strong>{{ new_count }} new</strong> since you last looked</span>
-      {% endif %}
+  <!-- ============ FIXED MAP HERO ============ -->
+  <header class="hero">
+    <div id="map"></div>
+    <div class="hero-spotlight"></div>
+    <div class="hero-veil"></div>
+    <div class="hero-ui">
+      <div class="brand">
+        <span class="mk">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e0743b" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/><path d="M10 19v-5h4v5"/></svg>
+        </span>
+        <span>
+          <span class="nm serif">Rental&nbsp;Watcher</span><br>
+          <span class="tag">Tap a pin to jump to the place</span>
+        </span>
+      </div>
+
+      {# The dot used to lie green when nothing had polled in hours; keep it honest. #}
+      <div class="hero-status">
+        <div class="tog {{ '' if healthy else ('cold' if last_poll else 'off') }}"
+             title="{% if not last_poll %}No poll since this server started{% elif healthy %}Polling on schedule{% else %}Overdue - last poll {{ last_poll }}{% endif %}">
+          <span class="d"></span>{% if last_poll %}Checked {{ last_poll }}{% else %}Not checked yet{% endif %}
+        </div>
+        <div class="tog"><span class="d"></span>Every {{ config.POLL_MINUTES }} min</div>
+      </div>
+
+      <div class="hero-foot">
+        <div class="hero-stats">
+          <span class="hero-stat"><b>{{ new_count }}</b> new since you looked</span>
+          <span class="hero-stat"><b>{{ matching }}</b> within reach</span>
+          <span class="hero-stat"><b>{{ settings.walk_minutes }}</b> min to your desk</span>
+        </div>
+        <span class="scrollcue" onclick="document.getElementById('content').scrollIntoView({behavior:'smooth'})"
+              title="Scroll to the listings">&#8595;</span>
+      </div>
     </div>
   </header>
 
-  {% if config.DRY_RUN %}
-    {# Was one pill among six. It changes what every button on this page does, so
-       it belongs where a mode banner belongs. #}
-    <div class="alert warn"><span class="ico">&#9888;</span><div>
-      <b>Dry run &mdash; replies aren't actually sent.</b>
-      <b>Send</b> writes your message to the server log instead of contacting the
-      poster. New listings are found and shown either way. Set
-      <code>DRY_RUN=0</code> in <code>.env</code> and restart to reply for real.
-    </div></div>
-  {% endif %}
+  <!-- ============ CONTENT (below the map hero) ============ -->
+  <main class="content" id="content">
+    <div class="content-head">
+      <h1 class="serif">The places worth the walk home.</h1>
+      <div class="sub">Fresh studios &amp; one-bedrooms near
+        <a href="https://www.google.com/maps/search/?api=1&query={{ settings.office_lat }},{{ settings.office_lon }}"
+           target="_blank" rel="noopener">the office</a> &mdash; the moment they post.</div>
+    </div>
 
-  {% if saved %}
-    <div class="alert good"><span class="ico">&check;</span><div>{{ saved }}</div></div>
-  {% endif %}
-  {% if errors %}
-    <div class="alert bad"><span class="ico">!</span><div>
-      <b>Nothing was saved.</b>
-      <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
-    </div></div>
-  {% endif %}
+    <div class="wrap">
 
-  {# Email and Twilio used to be listed here because alerts went out over them.
-     Nothing is sent now, so an unconfigured mailer no longer stops anything working
-     and doesn't belong on a checklist. What's left is what can still block a reply. #}
-  {% set blockers = [] %}
-  {% if placeholders %}{% set _ = blockers.append(1) %}{% endif %}
-  {% if not playwright %}{% set _ = blockers.append(1) %}{% endif %}
-
-  {% if blockers %}
-  <section class="card">
-    <div class="card-head"><h2 class="card-title">Setup &middot; {{ blockers|length }} to look at</h2></div>
-    <div class="card-body">
-
-      {% if placeholders %}
-        <div class="notice"><span class="badge blocked"></span><div class="notice-text">
-          <b>Your reply message isn't finished.</b> It still contains
-          {% for p in placeholders %}<code>{{ p }}</code>{% if not loop.last %} {% endif %}{% endfor %}.
-          Sending is blocked until you replace those in <code>.env</code>, so nothing
-          half-written reaches a landlord.
+      {% if config.DRY_RUN %}
+        <div class="alert warn"><span class="ico">&#9888;</span><div>
+          <b>Dry run &mdash; replies aren't actually sent.</b>
+          <b>Send</b> writes your message to the server log instead of contacting the poster. New listings
+          are found and shown either way. Set <code>DRY_RUN=0</code> in <code>.env</code> and restart to reply for real.
         </div></div>
       {% endif %}
 
-      {% if not playwright %}
-        <div class="notice"><span class="badge heads-up"></span><div class="notice-text">
-          <b>Assisted reply is unavailable.</b> Needs
-          <code>pip install playwright &amp;&amp; playwright install chromium</code>.
-          Until then replying is fully manual, though every row still links to its post.
+      {% if saved %}
+        <div class="alert good"><span class="ico">&check;</span><div>{{ saved }}</div></div>
+      {% endif %}
+      {% if errors %}
+        <div class="alert bad"><span class="ico">!</span><div>
+          <b>Nothing was saved.</b>
+          <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
         </div></div>
       {% endif %}
 
-    </div>
-  </section>
-  {% endif %}
+      {# What can still block a reply - mailer/Twilio no longer gate anything. #}
+      {% set blockers = [] %}
+      {% if placeholders %}{% set _ = blockers.append(1) %}{% endif %}
+      {% if not playwright %}{% set _ = blockers.append(1) %}{% endif %}
 
-  <div class="stack">
-
-  <form class="filters" method="post" action="/settings{% if qs %}?{{ qs }}{% endif %}">
-    <section class="card">
-      <div class="card-head">
-        <h2 class="card-title">Search filters</h2>
-        <span class="hint">Applies from the next check</span>
-      </div>
-      <div class="card-body">
-        {# Office coordinates are split out so they don't leave an orphan in the
-           main grid, and because you set them once and then forget them. #}
-        {% set main = ['walk_minutes', 'min_price', 'max_price', 'min_bedrooms', 'max_bedrooms'] %}
-        {% macro field(name) %}
-          {% set caster, low, high, label = spec[name] %}
-          <div>
-            {# A differing value is normal, not a problem, so it gets a quiet chip
-               rather than coloured text under the input - that read as "unsaved". #}
-            <label for="{{ name }}"{% if notes.get(name) %} title="{{ notes[name] }}"{% endif %}>
-              {{ label }}
-              {% if settings[name] != defaults[name] %}
-                <span class="chip"
-                      title="Saved. The value in your .env file is {{ defaults[name] }}.">yours</span>
-              {% endif %}
-            </label>
-            <input type="number" id="{{ name }}" name="{{ name }}"
-                   value="{{ settings[name] }}" min="{{ low }}" max="{{ high }}"
-                   step="{{ '0.0001' if caster.__name__ == 'float' else '1' }}">
-          </div>
-        {% endmacro %}
-
-        <div class="grid five">
-          {% for name in main %}{{ field(name) }}{% endfor %}
+      {% if blockers %}
+      <section class="card">
+        <div class="card-head"><h2 class="card-title">Setup &middot; {{ blockers|length }} to look at</h2></div>
+        <div class="card-body">
+          {% if placeholders %}
+            <div class="notice"><span class="badge blocked"></span><div class="notice-text">
+              <b>Your reply message isn't finished.</b> It still contains
+              {% for p in placeholders %}<code>{{ p }}</code>{% if not loop.last %} {% endif %}{% endfor %}.
+              Sending is blocked until you replace those in <code>.env</code>, so nothing half-written reaches a landlord.
+            </div></div>
+          {% endif %}
+          {% if not playwright %}
+            <div class="notice"><span class="badge heads-up"></span><div class="notice-text">
+              <b>Assisted reply is unavailable.</b> Needs
+              <code>pip install playwright &amp;&amp; playwright install chromium</code>.
+              Until then replying is fully manual, though every card still links to its post.
+            </div></div>
+          {% endif %}
         </div>
+      </section>
+      {% endif %}
 
-        <details class="advanced">
-          <summary>Office location</summary>
-          <div class="grid two">
-            {{ field('office_lat') }}{{ field('office_lon') }}
+      <!-- ============ FILTERS ============ -->
+      <form class="filters" method="post" action="/settings{% if qs %}?{{ qs }}{% endif %}">
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Search filters</h2>
+            <span class="hint">Applies from the next check</span>
           </div>
-          <div class="hint">
-            Right-click your building in Google Maps and copy the coordinates. The
-            default is a street-level estimate, not a rooftop pin.
-          </div>
-        </details>
-
-        <div class="row">
-          <button class="primary" type="submit">Save filters</button>
-          <button type="submit" name="reset" value="1"
-                  onclick="return confirm('Discard every filter you have saved here and go back to the values in .env?')">
-            Reset to .env
-          </button>
-        </div>
-      </div>
-    </section>
-  </form>
-
-  <section class="card listings">
-    <div class="card-head">
-      <h2 class="card-title">Listings</h2>
-      <div class="head-tools">
-        {# Default is "matching", because the whole point of the filters is that the
-           list obeys them. "All" stays reachable for anything already replied to. #}
-        <span class="seg">
-          <a class="{{ 'on' if show == 'match' }}"
-             href="/?show=match{% if sort != 'new' %}&sort={{ sort }}{% endif %}"
-             title="Only listings today's filters would still find">Matching {{ matching }}</a>
-          <a class="{{ 'on' if show == 'all' }}"
-             href="/?show=all{% if sort != 'new' %}&sort={{ sort }}{% endif %}"
-             title="Everything recorded, including strays from an earlier filter">All {{ total }}</a>
-        </span>
-        <form class="inline" method="post" action="/poll{% if qs %}?{{ qs }}{% endif %}">
-          <button class="small" type="submit">Check now</button>
-        </form>
-      </div>
-    </div>
-
-    {% if listings %}
-    {% macro sortable(key, label) %}
-      <a class="{{ 'on' if sort == key }}"
-         href="/?sort={{ key }}{% if show != 'match' %}&show={{ show }}{% endif %}">{{ label }}</a>
-    {% endmacro %}
-    <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>{{ sortable('price', 'Price') }}</th>
-          <th>Bed</th>
-          <th>{{ sortable('walk', 'Walk') }}</th>
-          <th>Built</th>
-          <th>Listing</th>
-          <th>{{ sortable('new', 'Found') }}</th>
-          <th>Reply</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for l in listings %}
-        {% set over = l.distance_m is not none and l.distance_m > radius_m %}
-        <tr class="{{ 'stale' if not l.matches or l.repost }}">
-          <td class="num">{{ l.num }}</td>
-          <td class="price">{{ "${:,}".format(l.price) if l.price else "&mdash;"|safe }}</td>
-          <td class="beds">
-            {{ "studio" if l.bedrooms == 0
-               else (l.bedrooms|string + " bed" if l.bedrooms is not none else "&mdash;"|safe) }}
-          </td>
-          <td class="walk {{ 'over' if over }}">
-            <b>{{ walk(l.distance_m) }} min</b>
-            <span class="m">{{ l.distance_m|int }} m</span>
-            <div class="bar">
-              <span style="width: {{ [(l.distance_m / radius_m * 100), 100]|min|round|int }}%"></span>
-            </div>
-            {% if over %}
-              <div class="why" title="Recorded when your radius was wider than {{ settings.walk_minutes }} min">
-                past your limit
+          <div class="card-body">
+            {% set main = ['walk_minutes', 'min_price', 'max_price', 'min_bedrooms', 'max_bedrooms'] %}
+            {% macro field(name) %}
+              {% set caster, low, high, label = spec[name] %}
+              <div>
+                <label for="{{ name }}"{% if notes.get(name) %} title="{{ notes[name] }}"{% endif %}>
+                  {{ label }}
+                  {% if settings[name] != defaults[name] %}
+                    <span class="chip" title="Saved. The value in your .env file is {{ defaults[name] }}.">yours</span>
+                  {% endif %}
+                </label>
+                <input type="number" id="{{ name }}" name="{{ name }}"
+                       value="{{ settings[name] }}" min="{{ low }}" max="{{ high }}"
+                       step="{{ '0.0001' if caster.__name__ == 'float' else '1' }}">
               </div>
-            {% endif %}
-          </td>
-          <td class="built" data-built-for="{{ l.num }}">
-            {% if l.year_built %}
-              <b title="Source: {{ l.year_source }}">{{ l.year_built }}</b>
-            {% elif l.year_source is none and l.address %}
-              <span class="muted" title="No record for {{ l.address }}">none</span>
-            {% else %}
-              <form class="inline lookup" method="post" action="/building/{{ l.num }}">
-                <button class="link" type="submit"
-                        title="Fetch the posting and look up its age">look up</button>
-              </form>
-            {% endif %}
-          </td>
-          <td class="title">
-            {# Titles are clipped to one line; the full text lives in the tooltip so
-               a clipped one is still readable without opening the post. #}
-            <a class="listing" href="{{ l.url }}" target="_blank" rel="noopener"
-               title="{{ l.title }}">
-              <span class="listing-title">{{ l.title }}</span>
-            </a>
-            <div class="meta" data-address-for="{{ l.num }}">
-              {{ l.address or "" }}
-              {# Two postings is routine and badging it made a badge on nearly every
-                 row, which is wallpaper. Three or more is the useful signal: this
-                 place keeps coming back, so it probably hasn't rented. #}
-              {% if l.repeats >= 2 %}
-                <span class="tag" title="Posted {{ l.repeats + 1 }} times at this price. Often means it hasn't rented.">
-                  relisted {{ l.repeats + 1 }}&times;
-                </span>
-              {% elif l.repost %}
-                <span class="tag" title="An earlier row is the same unit at the same price">repost</span>
-              {% endif %}
+            {% endmacro %}
+
+            <div class="grid five">
+              {% for name in main %}{{ field(name) }}{% endfor %}
             </div>
-          </td>
-          {# Was an "alerted" tag, which after a while marked almost every row and so
-             said nothing. "new" marks only what you haven't looked at yet, and clears
-             itself once this page has shown it to you. #}
-          <td class="found meta">
-            {{ l.seen_at[5:16] }}{% if l.is_new %} <span class="tag fresh">new</span>{% endif %}
-          </td>
-          <td class="reply" data-reply-for="{{ l.num }}">
-            {% if l.replied_at %}
-              <span class="tag ok" title="{{ l.reply_note }}">replied</span>
-            {% else %}
-              <form class="inline send" method="post" action="/reply/{{ l.num }}">
-                <button class="small" type="submit"
-                        title="Send your intro message about this listing">Send</button>
-              </form>
+
+            <details class="advanced">
+              <summary>Office location</summary>
+              <div class="grid two">
+                {{ field('office_lat') }}{{ field('office_lon') }}
+              </div>
+              <div class="hint" style="margin-top:.6rem">
+                Right-click your building in Google Maps and copy the coordinates. The default is a
+                street-level estimate, not a rooftop pin.
+              </div>
+            </details>
+
+            <div class="row">
+              <button class="primary" type="submit">Save filters</button>
+              <button class="ghost" type="submit" name="reset" value="1"
+                      onclick="return confirm('Discard every filter you have saved here and go back to the values in .env?')">
+                Reset to .env
+              </button>
+            </div>
+          </div>
+        </section>
+      </form>
+
+      <!-- ============ LISTINGS ============ -->
+      <section class="listings">
+        <div class="listings-head">
+          <h2 class="t">New near the office</h2>
+          <div class="head-tools">
+            <span class="seg">
+              <a class="{{ 'on' if show == 'match' }}"
+                 href="/?show=match{% if sort != 'new' %}&sort={{ sort }}{% endif %}"
+                 title="Only listings today's filters would still find">Matching {{ matching }}</a>
+              <a class="{{ 'on' if show == 'all' }}"
+                 href="/?show=all{% if sort != 'new' %}&sort={{ sort }}{% endif %}"
+                 title="Everything recorded, including strays from an earlier filter">All {{ total }}</a>
+            </span>
+            <form class="inline" method="post" action="/poll{% if qs %}?{{ qs }}{% endif %}">
+              <button class="small ghost" type="submit">&#8635; Check now</button>
+            </form>
+          </div>
+        </div>
+
+        {% if listings %}
+        {% macro sortable(key, label) %}
+          <a class="{{ 'on' if sort == key }}"
+             href="/?sort={{ key }}{% if show != 'match' %}&show={{ show }}{% endif %}">{{ label }}</a>
+        {% endmacro %}
+        <div class="sortbar">
+          <span>Sort:</span>{{ sortable('new', 'Newest') }}{{ sortable('price', 'Price') }}{{ sortable('walk', 'Walk') }}
+        </div>
+
+        <div class="cards">
+        {% for l in listings %}
+          {% set over = l.distance_m is not none and l.distance_m > radius_m %}
+          <article class="lc {{ 'stale' if not l.matches or l.repost }}" id="listing-{{ l.num }}">
+            <span class="from-map">&#9679; from the map</span>
+            <div class="prow">
+              <span class="price serif">{{ "${:,}".format(l.price) if l.price else "&mdash;"|safe }}</span>
+              {% if l.is_new %}<span class="newtag"><span class="d"></span>NEW</span>{% endif %}
+            </div>
+
+            <div class="facts">
+              <b>{{ "studio" if l.bedrooms == 0 else (l.bedrooms|string + " bed" if l.bedrooms is not none else "?") }}</b>
+              {% if l.distance_m is not none %}
+                &middot; <b class="{{ 'over' if over }}">{{ walk(l.distance_m) }} min</b> walk
+                &middot; {{ l.distance_m|int }} m
+              {% endif %}
+              <span class="built-cell" data-built-for="{{ l.num }}">
+                {% if l.year_built %}
+                  &middot; built <span title="Source: {{ l.year_source }}">{{ l.year_built }}</span>
+                {% elif l.year_source is none and l.address %}
+                  &middot; <span class="muted" title="No record for {{ l.address }}">age unknown</span>
+                {% else %}
+                  &middot;
+                  <form class="inline lookup" method="post" action="/building/{{ l.num }}">
+                    <button class="link" type="submit" title="Fetch the posting and look up its age">look up age</button>
+                  </form>
+                {% endif %}
+              </span>
+            </div>
+            <div class="meter {{ 'over' if over }}">
+              <span style="width: {{ [(l.distance_m / radius_m * 100), 100]|min|round|int if l.distance_m is not none else 0 }}%"></span>
+            </div>
+
+            <a class="title" href="{{ l.url }}" target="_blank" rel="noopener" title="{{ l.title }}">{{ l.title }}</a>
+            <div class="addr" data-address-for="{{ l.num }}">
+              {{ l.address or "" }}
+            </div>
+            {% if l.repeats >= 2 %}
+              <span class="tag relist" title="Posted {{ l.repeats + 1 }} times at this price. Often means it hasn't rented.">relisted {{ l.repeats + 1 }}&times;</span>
+            {% elif l.repost %}
+              <span class="tag" title="An earlier card is the same unit at the same price">repost</span>
             {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+            {% if over %}
+              <span class="tag" title="Recorded when your radius was wider than {{ settings.walk_minutes }} min">past your limit</span>
+            {% endif %}
+
+            <div class="foot">
+              <span class="found">{{ l.seen_at[5:16] }}</span>
+              <span class="reply-cell" data-reply-for="{{ l.num }}">
+                {% if l.replied_at %}
+                  <span class="tag" title="{{ l.reply_note }}">&check; replied</span>
+                {% else %}
+                  <form class="inline send" method="post" action="/reply/{{ l.num }}">
+                    <button class="small primary" type="submit" title="Send your intro message about this listing">Send message &rarr;</button>
+                  </form>
+                {% endif %}
+              </span>
+            </div>
+          </article>
+        {% endfor %}
+        </div>
+
+        {% elif total %}
+          <div class="empty">
+            None of the {{ total }} listings on record match your filters right now.<br>
+            <a href="/?show=all">Show all {{ total }}</a> or widen the filters above.
+          </div>
+        {% else %}
+          <div class="empty">
+            Nothing recorded yet. Hit <b>Check now</b> to sweep Craigslist.
+          </div>
+        {% endif %}
+
+        {% if playwright %}
+          <div class="foot-note">
+            <b>Send message</b> tries unattended first, then opens a browser window with your message
+            pre-filled &mdash; Craigslist guards the reply address with a captcha, so the last step is yours.
+          </div>
+        {% endif %}
+      </section>
     </div>
-    {% elif total %}
-      {# Distinguish "nothing matches" from "nothing found yet" - they need
-         completely different actions from you. #}
-      <div class="empty">
-        None of the {{ total }} listings on record match your filters right now.<br>
-        <a href="/?show=all">Show all {{ total }}</a> or widen the filters below.
-      </div>
-    {% else %}
-      <div class="empty">
-        Nothing recorded yet. Hit <b>Check now</b> to sweep Craigslist.
-      </div>
-    {% endif %}
+  </main>
 
-    {% if playwright %}
-      <div class="foot">
-        <b>Send</b> tries unattended first, then opens a browser window with your message
-        pre-filled &mdash; Craigslist guards the reply address with a captcha, so the last
-        step is yours.
-      </div>
-    {% endif %}
-  </section>
+  {# Pins for the hero map. Built inline from the same listings the cards use, so the
+     map can never disagree with the list. No Python change needed - lat/lon already
+     ride along on every row. #}
+  <script id="pins" type="application/json">
+  [
+  {%- for l in listings if l.lat is not none and l.lon is not none -%}
+    {"num": {{ l.num }}, "lat": {{ l.lat }}, "lon": {{ l.lon }},
+     "price": {{ l.price if l.price else 'null' }},
+     "title": {{ (l.title or '') | tojson }},
+     "url": {{ (l.url or '') | tojson }},
+     "isNew": {{ 'true' if l.is_new else 'false' }},
+     "over": {{ 'true' if (l.distance_m is not none and l.distance_m > radius_m) else 'false' }}}{{- "," if not loop.last -}}
+  {%- endfor -%}
+  ]
+  </script>
+  <script>
+    window.OFFICE = { lat: {{ settings.office_lat }}, lon: {{ settings.office_lon }} };
+  </script>
 
-  </div>
-</div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+  // ---------- map ----------
+  (function () {
+    var el = document.getElementById("map");
+    if (!el || typeof L === "undefined") return;
+    var pins = [];
+    try { pins = JSON.parse(document.getElementById("pins").textContent) || []; } catch (e) {}
 
-<script>
-// Look up a building's age without reloading: a full re-render would jump you back
-// to the top, away from the row you were reading. Progressive enhancement - if this
-// script doesn't run, the form posts normally and the page still works.
-document.addEventListener("submit", function (event) {
-  var form = event.target.closest("form.lookup");
-  if (!form) return;
-  event.preventDefault();
+    // A stable backdrop: no scroll-hijack, no drag jitter. Pins stay clickable.
+    var map = L.map(el, {
+      zoomControl: false, attributionControl: false, scrollWheelZoom: false,
+      doubleClickZoom: false, dragging: false, boxZoom: false, keyboard: false, touchZoom: false,
+    }).setView([OFFICE.lat, OFFICE.lon], 14);
 
-  var cell = form.closest("td");
-  var num = cell.getAttribute("data-built-for");
-  var button = form.querySelector("button");
-  button.disabled = true;
-  button.textContent = "looking…";
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 16 }
+    ).addTo(map);
 
-  fetch(form.action, { method: "POST", headers: { Accept: "application/json" } })
-    .then(function (response) {
-      if (!response.ok) throw new Error(response.status);
-      return response.json();
-    })
-    .then(function (data) {
-      if (data.year_built) {
-        cell.innerHTML =
-          '<b title="Source: ' + data.year_source + '">' + data.year_built + "</b>";
-      } else {
-        var span = document.createElement("span");
-        span.className = "muted";
-        span.title = data.note;
-        span.textContent = "none";
-        cell.replaceChildren(span);
+    var bounds = L.latLngBounds([[OFFICE.lat, OFFICE.lon]]);
+
+    L.marker([OFFICE.lat, OFFICE.lon], {
+      icon: L.divIcon({ className: "", html: '<div class="pin-office" style="width:20px;height:20px"></div>', iconSize: [20, 20] }),
+      interactive: false,
+    }).addTo(map);
+
+    var markerByNum = {};
+    pins.forEach(function (p) {
+      var cls = "pin-listing" + (p.isNew ? " is-new" : "") + (p.over ? " over" : "");
+      var m = L.marker([p.lat, p.lon], {
+        icon: L.divIcon({ className: "", html: '<div class="' + cls + '" style="width:14px;height:14px"></div>', iconSize: [14, 14] }),
+        title: p.title,
+      }).addTo(map);
+      var priceStr = p.price ? "$" + p.price.toLocaleString() : "";
+      m.bindTooltip((priceStr ? "<b>" + priceStr + "</b> &middot; " : "") + (p.title || ""), { direction: "top", offset: [0, -6] });
+      m.on("click", function () { jumpToListing(p.num, p.url); });
+      markerByNum[p.num] = m;
+      bounds.extend([p.lat, p.lon]);
+    });
+
+    if (pins.length) map.fitBounds(bounds, { padding: [90, 90], maxZoom: 15 });
+    // Keep the view sensible when the window resizes under the fixed hero.
+    window.addEventListener("resize", function () { map.invalidateSize(); if (pins.length) map.fitBounds(bounds, { padding: [90, 90], maxZoom: 15 }); });
+
+    // Warm light that follows the cursor over the map.
+    var hero = document.querySelector(".hero");
+    var spot = document.querySelector(".hero-spotlight");
+    if (hero && spot) {
+      hero.addEventListener("pointermove", function (e) {
+        var r = hero.getBoundingClientRect();
+        spot.style.setProperty("--mx", (e.clientX - r.left) + "px");
+        spot.style.setProperty("--my", (e.clientY - r.top) + "px");
+        spot.style.opacity = "1";
+      });
+      hero.addEventListener("pointerleave", function () { spot.style.opacity = "0"; });
+    }
+
+    window.addEventListener("resize", function () { map.invalidateSize(false); });
+
+    function markPin(num) {
+      Object.keys(markerByNum).forEach(function (k) {
+        var d = markerByNum[k].getElement() && markerByNum[k].getElement().firstChild;
+        if (d) d.classList.toggle("picked", String(k) === String(num));
+      });
+    }
+
+    // Clicking a pin scrolls to its card, marks it as selected until you pick another,
+    // and lights the pin. If the card isn't on this page (past the 100-row cut, or
+    // hidden by the Matching filter), open the post instead.
+    window.jumpToListing = function (num, url) {
+      var card = document.getElementById("listing-" + num);
+      if (card) {
+        document.querySelectorAll(".lc.selected").forEach(function (el) { el.classList.remove("selected"); });
+        card.classList.add("selected");
+        markPin(num);
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+        card.classList.remove("flash");
+        void card.offsetWidth;
+        card.classList.add("flash");
+      } else if (url) {
+        window.open(url, "_blank", "noopener");
       }
-      var addr = document.querySelector('[data-address-for="' + num + '"]');
-      if (addr && data.address) addr.textContent = data.address;
-    })
-    .catch(function () {
-      button.disabled = false;
-      button.textContent = "retry";
-      button.title = "That lookup failed. Click to try again.";
-    });
-});
+    };
+  })();
 
-// Send goes to a stranger and can't be taken back, so it asks first - and then
-// reports back in the row rather than re-rendering, which used to scroll you away
-// from the listing you were looking at before you could read the outcome.
-document.addEventListener("submit", function (event) {
-  var form = event.target.closest("form.send");
-  if (!form) return;
-
-  var row = form.closest("tr");
-  var title = row.querySelector(".listing-title");
-  if (!confirm('Send your intro message about "' +
-      (title ? title.textContent.trim() : "this listing") + '"?')) {
+  // ---------- building age lookup (progressive enhancement) ----------
+  document.addEventListener("submit", function (event) {
+    var form = event.target.closest("form.lookup");
+    if (!form) return;
     event.preventDefault();
-    return;
-  }
-  event.preventDefault();
 
-  var cell = form.closest("td");
-  var button = form.querySelector("button");
-  button.disabled = true;
-  button.textContent = "sending…";
+    var cell = form.closest(".built-cell");
+    var num = cell.getAttribute("data-built-for");
+    var button = form.querySelector("button");
+    button.disabled = true;
+    button.textContent = "looking...";
 
-  fetch(form.action, { method: "POST", headers: { Accept: "application/json" } })
-    .then(function (response) {
-      if (!response.ok) throw new Error(response.status);
-      return response.json();
-    })
-    .then(function (data) {
-      var tag = document.createElement("span");
-      // Not replied means the captcha handoff happened: a browser window is
-      // opening and the note explains that, so it must stay readable.
-      tag.className = data.replied ? "tag ok" : "tag";
-      tag.title = data.note;
-      tag.textContent = data.replied ? "replied" : "your turn";
-      cell.replaceChildren(tag);
-      if (!data.replied) alert(data.note);
-    })
-    .catch(function () {
-      button.disabled = false;
-      button.textContent = "retry";
-      button.title = "That didn't go through. Click to try again.";
-    });
-});
-</script>
+    fetch(form.action, { method: "POST", headers: { Accept: "application/json" } })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (data) {
+        if (data.year_built) {
+          cell.innerHTML = '&middot; built <span title="Source: ' + data.year_source + '">' + data.year_built + "</span>";
+        } else {
+          var span = document.createElement("span");
+          span.className = "muted";
+          span.title = data.note;
+          span.textContent = "· age unknown";
+          cell.replaceChildren(span);
+        }
+        var addr = document.querySelector('[data-address-for="' + num + '"]');
+        if (addr && data.address) addr.textContent = data.address;
+      })
+      .catch(function () {
+        button.disabled = false;
+        button.textContent = "retry";
+        button.title = "That lookup failed. Click to try again.";
+      });
+  });
+
+  // ---------- send (confirm, then report in place) ----------
+  document.addEventListener("submit", function (event) {
+    var form = event.target.closest("form.send");
+    if (!form) return;
+
+    var card = form.closest(".lc");
+    var title = card ? card.querySelector(".title") : null;
+    if (!confirm('Send your intro message about "' +
+        (title ? title.textContent.trim() : "this listing") + '"?')) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+
+    var cell = form.closest(".reply-cell");
+    var button = form.querySelector("button");
+    button.disabled = true;
+    button.textContent = "sending...";
+
+    fetch(form.action, { method: "POST", headers: { Accept: "application/json" } })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (data) {
+        var tag = document.createElement("span");
+        tag.className = "tag";
+        tag.title = data.note;
+        tag.textContent = data.replied ? "✓ replied" : "your turn";
+        cell.replaceChildren(tag);
+        if (!data.replied) alert(data.note);
+      })
+      .catch(function () {
+        button.disabled = false;
+        button.textContent = "retry";
+        button.title = "That didn't go through. Click to try again.";
+      });
+  });
+  </script>
 </body>
 </html>
